@@ -1,0 +1,63 @@
+# Production overlay for the single-host pilot.
+# Keep the API, database, Qdrant, and worker private. Put a TLS terminator in front
+# of the loopback-bound proxy port before exposing the application publicly.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong URL-safe POSTGRES_PASSWORD}
+
+  qdrant:
+    image: ${QDRANT_IMAGE:?Set QDRANT_IMAGE to a reviewed, pinned Qdrant image tag}
+    restart: unless-stopped
+
+  api:
+    restart: unless-stopped
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://calibrex:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/calibrex
+      JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET of at least 32 characters}
+      INFERENCE_BACKEND: http
+      AI_WORKER_URL: http://ai-worker:8001
+      AI_WORKER_TOKEN: ${AI_WORKER_TOKEN:?Set the shared AI_WORKER_TOKEN}
+      MAIL_BACKEND: smtp
+      MAIL_FROM: ${MAIL_FROM:-Calibrex <no-reply@example.com>}
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the public HTTPS app URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set explicit browser origins}
+      TRUST_PROXY_HEADERS: "true"
+      COOKIE_SECURE: "true"
+      DOCS_ENABLED: "false"
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_ON_START: "false"
+      EXPOSE_INVITE_TOKEN: "false"
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_DIR: /srv/data
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_BUCKET: ${S3_BUCKET:-calibrex}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+    volumes:
+      - apidata:/srv/data
+
+  proxy:
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_HTTP_PORT:-8080}:80"
+
+  ai-worker:
+    restart: unless-stopped
+    environment:
+      ENV: production
+      AI_WORKER_TOKEN: ${AI_WORKER_TOKEN:?Set the shared AI_WORKER_TOKEN}
+      H5_MODEL_PATH: /models/iou_resnet50_csv_06.h5
+
+volumes:
+  pgdata: {}
+  qdrantdata: {}
+  apidata: {}
+  modelscache: {}

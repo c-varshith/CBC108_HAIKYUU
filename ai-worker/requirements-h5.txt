@@ -1,0 +1,8 @@
+# Optional runtime for the bundled legacy Keras 2 RetinaNet .h5 model.
+# TF_USE_LEGACY_KERAS=1 is set before importing TensorFlow in app.detector.
+tensorflow>=2.16,<2.17
+tf-keras>=2.16,<2.17
+# TensorFlow 2.16 uses NumPy 1.x; keep the YOLO fallback's compiled stack compatible.
+numpy>=1.26,<2
+opencv-python>=4.7,<5
+matplotlib>=3.3,<3.11

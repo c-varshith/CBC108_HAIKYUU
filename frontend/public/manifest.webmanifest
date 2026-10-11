@@ -1,0 +1,13 @@
+{
+  "name": "Calibrex",
+  "short_name": "Calibrex",
+  "description": "Count shelf items, review uncertain detections, and approve inventory scans.",
+  "start_url": "/#/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07131c",
+  "theme_color": "#07131c",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,13 @@
+tests
+eval
+train
+__pycache__
+*.pt
+!runs/
+!runs/detect/
+!runs/detect/runs/
+!runs/detect/runs/detect/
+!runs/detect/runs/detect/calibrex_s960/
+!runs/detect/runs/detect/calibrex_s960/weights/
+!runs/detect/runs/detect/calibrex_s960/weights/best.pt
+.env

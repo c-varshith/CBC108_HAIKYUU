@@ -1,0 +1,52 @@
+# Local environments and installed dependencies
+.venv/
+frontend/node_modules/
+
+# Build and test output
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+coverage/
+*.log
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+!.env.*.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+docker-compose.override.yml
+backend/data/
+
+# Local handoffs, unrelated source documents, archives, and generated catalog data
+/BRAINSTORMING_CONTEXT.md
+/files/
+/handoff/
+*.zip
+/image_urls.tsv
+
+# Keep only the deployed detector checkpoint from generated training runs.
+ai-worker/runs/detect/runs/detect/timing*/
+ai-worker/runs/detect/runs/detect/calibrex_s960/*
+!ai-worker/runs/detect/runs/detect/calibrex_s960/weights/
+ai-worker/runs/detect/runs/detect/calibrex_s960/weights/*
+!ai-worker/runs/detect/runs/detect/calibrex_s960/weights/best.pt
+ai-worker/weights/*.pt
+ai-worker/yolo*.pt
+
+# Optional large legacy detector; provide it locally when using the H5 overlay.
+*.h5
+
+# Optional downloaded model weights and evaluation output
+models/*.pt
+ai-worker/eval/report-*.json

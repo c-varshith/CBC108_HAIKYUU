@@ -1,0 +1,71 @@
+# CALIBREX local stack.   docker compose up --build            (real CPU inference)
+#                         INFERENCE_BACKEND=stub docker compose up --build (explicit development fixtures only)
+# For the optional local H5 detector, add -f docker-compose.h5.yml and provide the ignored H5 model file.
+# Open http://localhost:8080 (API under /api, docs at /api/docs). Create the first Owner account in the browser.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: calibrex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-calibrex}
+      POSTGRES_DB: calibrex
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calibrex -d calibrex"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes: [qdrantdata:/qdrant/storage]
+    # only the ai-worker talks to Qdrant, so it is not published to the host
+
+  api:
+    build: ./backend
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://calibrex:${POSTGRES_PASSWORD:-calibrex}@postgres:5432/calibrex
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret}
+      INFERENCE_BACKEND: ${INFERENCE_BACKEND:-http}
+      AI_WORKER_URL: http://ai-worker:8001
+      AI_WORKER_TOKEN: ${AI_WORKER_TOKEN:-}
+      STORAGE_BACKEND: local
+      STORAGE_DIR: /srv/data
+      MEDIA_URL_PREFIX: /api/media
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      PUBLIC_APP_URL: http://localhost:8080
+      LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
+      TRUST_PROXY_HEADERS: "true"
+      SEED_ON_START: ${SEED_ON_START:-false}     # explicitly enable fixtures for development/tests
+      EXPOSE_INVITE_TOKEN: ${EXPOSE_INVITE_TOKEN:-true}   # local development only, refused when ENV=production
+    volumes: [apidata:/srv/data]
+
+  proxy:                    # nginx: serves the built frontend and forwards /api to the backend
+    build: {context: ., dockerfile: Dockerfile.proxy}
+    depends_on: [api]
+    ports: ["8080:80"]
+
+  ai-worker:                # Calibrex YOLO detector + DINOv2 catalog matching + Qdrant
+    build:
+      context: ./ai-worker
+      args:
+        INSTALL_H5_DEPS: ${INSTALL_H5_DEPS:-1}
+    depends_on: [qdrant]
+    restart: unless-stopped
+    env_file: [{path: ./ai-worker/.env, required: false}]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      AI_WORKER_TOKEN: ${AI_WORKER_TOKEN:-}
+      ENV: ${ENV:-development}
+      DEVICE: ${AI_DEVICE:-auto}
+      DETECTOR_BACKEND: ${DETECTOR_BACKEND:-yolo}
+      YOLO_WEIGHTS: ${YOLO_WEIGHTS:-/srv/calibrex-best.pt}
+      H5_MODEL_PATH: /models/iou_resnet50_csv_06.h5
+    volumes:
+      - modelscache:/models       # persistent HF, ultralytics and optional local YOLO caches
+    # not published to the host: only the api talks to it
+
+volumes: {pgdata: {}, qdrantdata: {}, apidata: {}, modelscache: {}}

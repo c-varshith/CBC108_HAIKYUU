@@ -1,0 +1,10 @@
+# Runtime for the ai-worker. torch/torchvision are installed by the Dockerfile (CPU or CUDA wheels).
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+numpy>=1.26,<3
+pillow>=10.3
+pillow-heif>=0.16
+ultralytics>=8.3.0          # YOLO11
+transformers>=4.44          # DINOv2
+qdrant-client>=1.9

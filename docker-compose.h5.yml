@@ -1,0 +1,12 @@
+# Optional H5 RetinaNet overlay. Keep the large H5 weights file locally at the project root.
+services:
+  ai-worker:
+    build:
+      context: ./ai-worker
+      args:
+        INSTALL_H5_DEPS: "1"
+    environment:
+      DETECTOR_BACKEND: h5
+      H5_MODEL_PATH: /models/iou_resnet50_csv_06.h5
+    volumes:
+      - "./iou_resnet50_csv_06.h5:/models/iou_resnet50_csv_06.h5:ro,z"

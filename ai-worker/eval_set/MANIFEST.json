@@ -1,0 +1,7 @@
+{
+ "synthetic": true,
+ "seed": 1,
+ "skus": 30,
+ "images": 42,
+ "note": "Shelf art equals reference art; boxes are exact. Optimistic: validates the pipeline, not real-world accuracy."
+}

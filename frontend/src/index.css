@@ -1,0 +1,224 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-paper: #f6f7f4;
+  --color-cream: #eef0ea;
+  --color-ink: #141a16;
+  --color-ink-2: #2c342f;
+  --color-muted: #5b675f;
+  --color-line: #e2e5df;
+  --color-line-strong: #ced4cb;
+
+  --color-brand: #0c7a45;
+  --color-brand-deep: #0a6136;
+  --color-brand-bright: #16a25e;
+  --color-brand-soft: #e2f2e8;
+  --color-brand-mist: #f0f7f2;
+
+  --color-warn: #b45309;
+  --color-warn-soft: #fdf1e0;
+  --color-danger: #c0392b;
+  --color-danger-soft: #fbeae7;
+
+  --shadow-card: 0 1px 2px rgba(20, 26, 22, 0.05), 0 12px 32px -16px rgba(20, 26, 22, 0.14);
+  --shadow-pop: 0 2px 6px rgba(20, 26, 22, 0.07), 0 24px 56px -20px rgba(20, 26, 22, 0.24);
+
+  --animate-scan: scan 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-scan-fast: scan 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-blink: blink 1.1s ease-in-out infinite;
+  --animate-rise: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes scan {
+    0% { transform: translateY(-110%); opacity: 0; }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { transform: translateY(430%); opacity: 0; }
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-deep);
+}
+
+/* Landing intro video sequence. The provider always reveals the page on a
+   timeout or media failure, while section links skip the intro entirely. */
+html.intro-lock { overflow: hidden; }
+[data-intro='playing'] .intro-reveal { opacity: 0; visibility: hidden; pointer-events: none; }
+[data-intro='done'] .intro-reveal { animation: intro-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0ms) both; }
+@keyframes intro-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-intro='done'] .intro-reveal { animation: none; }
+}
+
+/* Feather the looping hero video into the landing page on desktop. */
+@media (min-width: 1024px) {
+  .hero-video-fade {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 7%, #000 93%, transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 9%, #000 91%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to right, transparent 0, #000 7%, #000 93%, transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 9%, #000 91%, transparent 100%);
+    mask-composite: intersect;
+  }
+}
+
+/* Scroll reveal */
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Calibrex mission-control workspace. Theme variables keep the light option fully legible. */
+.workspace-shell[data-theme="dark"] {
+  --color-paper: #07131c;
+  --color-cream: #101f2a;
+  --color-ink: #e8f1f3;
+  --color-ink-2: #c9d7dc;
+  --color-muted: #9aafb8;
+  --color-line: #233943;
+  --color-line-strong: #36515c;
+  --color-brand: #36d6a2;
+  --color-brand-deep: #a0f3d8;
+  --color-brand-bright: #53e7b4;
+  --color-brand-soft: #123e36;
+  --color-brand-mist: #102f2e;
+  --color-warn: #f5bd61;
+  --color-warn-soft: #3b2e1b;
+  --color-danger: #ff8586;
+  --color-danger-soft: #402326;
+}
+.workspace-shell[data-theme="dark"] .bg-white,
+.workspace-shell[data-theme="dark"] [class~="bg-white/80"],
+.workspace-shell[data-theme="dark"] [class~="bg-white/95"] {
+  background-color: rgba(13, 29, 39, 0.94);
+  color: var(--color-ink);
+  backdrop-filter: blur(16px);
+}
+.workspace-shell[data-theme="dark"] .bg-ink { background-color: #36d6a2; color: #071b19; }
+.workspace-shell[data-theme="dark"] .workspace-nav-item.bg-ink { color: #071b19; }
+.workspace-shell[data-theme="dark"] input,
+.workspace-shell[data-theme="dark"] select,
+.workspace-shell[data-theme="dark"] textarea { color: var(--color-ink); }
+.workspace-shell[data-theme="dark"] option { background: #10202a; color: #e8f1f3; }
+.workspace-shell[data-theme="dark"] .shadow-card,
+.workspace-shell[data-theme="dark"] .shadow-pop { box-shadow: 0 12px 40px -22px rgba(0, 0, 0, .85); }
+.workspace-shell[data-theme="dark"] .rounded-2xl.border { backdrop-filter: blur(14px); }
+.workspace-shell[data-theme="dark"] kbd { border: 1px solid var(--color-line-strong); border-radius: 5px; padding: 1px 5px; font-family: var(--font-mono); }
+.workspace-shell[data-theme="light"] {
+  --color-paper: #dedfdd;
+  --color-cream: #e5e7e4;
+  --color-ink: #1d2420;
+  --color-ink-2: #3f4b44;
+  --color-muted: #5c6861;
+  --color-line: #d0d3cf;
+  --color-line-strong: #bdc4bc;
+  --color-brand: #0d7544;
+  --color-brand-deep: #075c35;
+  --color-brand-bright: #14975b;
+  --color-brand-soft: #dceee3;
+  --color-brand-mist: #e8f1eb;
+  --color-warn: #ad4c00;
+  --color-warn-soft: #ecdfce;
+}
+.workspace-shell[data-theme="light"] .workspace-sidebar,
+.workspace-shell[data-theme="light"] .workspace-topbar,
+.workspace-shell[data-theme="light"] .workspace-mobile-nav {
+  background-color: #e9eae9;
+  border-color: #cdd1cd;
+}
+.workspace-shell[data-theme="light"] .bg-white,
+.workspace-shell[data-theme="light"] [class~="bg-white/80"],
+.workspace-shell[data-theme="light"] [class~="bg-white/95"] {
+  background-color: #e9eae9;
+}
+.workspace-shell[data-theme="light"] .workspace-nav-item[aria-current="page"],
+.workspace-shell[data-theme="light"] .workspace-mobile-nav button[aria-current="page"] {
+  background-color: #1d2420;
+  color: #f5f7f5;
+}
+.workspace-shell[data-reduce-effects="true"] *,
+.workspace-shell[data-reduce-effects="true"] *::before,
+.workspace-shell[data-reduce-effects="true"] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .workspace-side-rail { width: 4.5rem; padding: 1rem .5rem; align-items: center; }
+  .workspace-brand { overflow: hidden; width: 2.75rem; }
+  .workspace-brand > * { transform: scale(.88); transform-origin: left center; }
+  .workspace-nav-item { justify-content: center; padding-inline: .5rem; }
+  .workspace-nav-item .nav-label { display: none; }
+  .workspace-mobile-nav { display: none; }
+  .scan-result-split { grid-template-columns: minmax(0, 62fr) minmax(280px, 38fr); }
+  .scan-results-panel { position: sticky; top: .75rem; align-self: start; max-height: calc(100vh - 1.5rem); overflow: auto; }
+}
+@media (min-width: 1280px) {
+  .scan-result-split { grid-template-columns: minmax(0, var(--image-pane)) minmax(320px, 1fr); }
+}
+
+/* Focus visibility */
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Subtle dashed connectors */
+.step-line {
+  background-image: linear-gradient(to right, var(--color-line-strong) 55%, transparent 45%);
+  background-size: 14px 2px;
+  background-repeat: repeat-x;
+  background-position: 0 center;
+}
+
+/* Thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Number inputs: hide spinners, we render custom steppers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

@@ -183,7 +183,9 @@ html.intro-lock { overflow: hidden; }
 .workspace-shell[data-reduce-effects="true"] *,
 .workspace-shell[data-reduce-effects="true"] *::before,
 .workspace-shell[data-reduce-effects="true"] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-.workspace-shell[data-reduce-effects="true"] .scan-sweep { opacity: .75; transform: translateY(200%); }
+.workspace-shell[data-reduce-effects="true"] .scan-sweep {
+  animation: calibrex-scan-sweep 2.8s linear infinite !important;
+}
 
 @media (min-width: 768px) and (max-width: 1023px) {
   .workspace-side-rail { width: 4.5rem; padding: 1rem .5rem; align-items: center; }

@@ -90,7 +90,11 @@ export function TeamPage() {
     e.preventDefault(); setError(null); setInfo(null);
     try {
       const r = await users.invite({ email, role });
-      setInfo(r.invite_token ? `Invite created. Share this link with ${email}: ${window.location.origin}/#/invite/${r.invite_token}` : `Invite emailed to ${email}.`);
+      setInfo(r.invite_token
+        ? `Invite created. Share this link with ${email}: ${window.location.origin}/#/invite/${r.invite_token}${r.existing_account_move ? ' · They must confirm their current password to join this supermarket.' : ''}`
+        : r.existing_account_move
+          ? `Invite emailed to ${email}. They must confirm their current password to move this account into your supermarket.`
+          : `Invite emailed to ${email}.`);
       setEmail(''); load();
     } catch (x) { setError(errMsg(x)); }
   }
@@ -99,6 +103,7 @@ export function TeamPage() {
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold tracking-tight">Team & settings</h1>
+      <p className="text-sm text-muted">Everyone invited here shares this supermarket’s catalog, shelves, scans, and inventory. An existing non-Owner account can join after confirming its current password.</p>
       <form onSubmit={invite} className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-white p-4">
         <label className="min-w-48 flex-1 text-xs font-semibold">Invite by email<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={`${field} mt-1 w-full`} /></label>
         <label className="text-xs font-semibold">Role<select value={role} onChange={(e) => setRole(e.target.value as Role)} className={`${field} mt-1 block`}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></label>

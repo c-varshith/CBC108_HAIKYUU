@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.security import (ahash_password, averify_password, create_access_token,
 router = APIRouter(tags=["auth"])
 _login_limiter: RateLimiter | None = None
 _reset_limiter: RateLimiter | None = None
+_signup_limiter: RateLimiter | None = None
 log = logging.getLogger("calibrex.auth")
 
 
@@ -33,8 +35,8 @@ def _limiter(s: Settings) -> RateLimiter:
 
 
 def reset_login_limiter() -> None:  # tests
-    global _login_limiter, _reset_limiter
-    _login_limiter = _reset_limiter = None
+    global _login_limiter, _reset_limiter, _signup_limiter
+    _login_limiter = _reset_limiter = _signup_limiter = None
 
 
 def _password_reset_limiter() -> RateLimiter:
@@ -53,7 +55,26 @@ class RegisterBody(BaseModel):
     email: EmailStr
     password: str = Field(max_length=256)
     name: str = Field(min_length=1, max_length=200)
-    org_name: str = Field(default="My organization", min_length=1, max_length=200)
+    org_name: str | None = Field(default=None, min_length=1, max_length=200)
+    role: Literal["OWNER", "MANAGER", "STAFF", "AUDITOR"] = "OWNER"
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name cannot be blank.")
+        return value
+
+    @field_validator("org_name")
+    @classmethod
+    def clean_org_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Workspace name cannot be blank.")
+        return value
 
 
 class AcceptBody(BaseModel):
@@ -102,7 +123,7 @@ async def register(body: RegisterBody, request: Request, response: Response, db:
     org = await db.scalar(select(Organization).where(Organization.slug == "default"))
     try:
         if org is None:
-            org = Organization(slug="default", name=body.org_name.strip())  # unique slug: a double-click race loses cleanly
+            org = Organization(slug="default", name=(body.org_name or "My organization").strip())  # unique slug: a double-click race loses cleanly
             db.add(org)
             await db.flush()
         user = User(org_id=org.id, email=body.email.lower(), name=body.name.strip(), role="OWNER",
@@ -112,6 +133,38 @@ async def register(body: RegisterBody, request: Request, response: Response, db:
     except IntegrityError:
         await db.rollback()
         raise conflict("Registration is closed. Ask your Owner for an invite.")
+    await get_org_settings(db, org.id)
+    audit(db, actor_for(request, user), "USER_REGISTERED", user.email, after="OWNER")
+    out = await _issue(db, s, response, request, user)
+    await db.commit()
+    return out
+
+
+@router.post("/auth/signup", status_code=201)
+async def signup(body: RegisterBody, request: Request, response: Response, db: AsyncSession = Depends(get_db),
+                 s: Settings = Depends(get_settings_dep)):
+    """Create a new supermarket workspace; the creator is its Owner and invites other roles."""
+    global _signup_limiter
+    if _signup_limiter is None:
+        _signup_limiter = RateLimiter(5, 3600)
+    if wait := _signup_limiter.hit(f"ip:{client_ip(request)}"):
+        raise ApiError(429, f"Too many sign-up attempts. Try again in {wait}s.", headers={"Retry-After": str(wait)})
+    if problem := password_problem(body.password):
+        raise unprocessable(problem)
+    org_name = (body.org_name or f"{body.name.strip()}'s workspace").strip()
+    org = Organization(slug=f"workspace-{new_id()}", name=org_name[:200])
+    db.add(org)
+    try:
+        await db.flush()
+        # Public signup creates a new supermarket, so its creator is its Owner.
+        # Other roles join an existing supermarket through its Owner's invitation.
+        user = User(org_id=org.id, email=body.email.lower(), name=body.name.strip(), role="OWNER",
+                    password_hash=await ahash_password(body.password))
+        db.add(user)
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise conflict("An account with this email already exists.")
     await get_org_settings(db, org.id)
     audit(db, actor_for(request, user), "USER_REGISTERED", user.email, after="OWNER")
     out = await _issue(db, s, response, request, user)
@@ -245,7 +298,11 @@ async def reset_password(body: PasswordResetBody, request: Request, response: Re
 @router.get("/invites/{token}")
 async def invite_info(token: str, db: AsyncSession = Depends(get_db)):
     inv = await _valid_invite(db, token)
-    return {"email": inv.email, "role": inv.role}
+    user = await db.get(User, inv.user_id)
+    out = {"email": inv.email, "role": inv.role}
+    if user and user.active and not user.pending and user.org_id != inv.org_id:
+        out["existing_account"] = True
+    return out
 
 
 async def _valid_invite(db: AsyncSession, token: str, lock: bool = False) -> Invite:
@@ -259,13 +316,28 @@ async def _valid_invite(db: AsyncSession, token: str, lock: bool = False) -> Inv
 @router.post("/invites/{token}/accept", status_code=201)
 async def accept_invite(token: str, body: AcceptBody, request: Request, response: Response, db: AsyncSession = Depends(get_db),
                         s: Settings = Depends(get_settings_dep)):
-    if (p := password_problem(body.password)):
-        raise unprocessable(p)
     inv = await _valid_invite(db, token, lock=True)
     user = await db.get(User, inv.user_id)
-    if user is None or not user.pending:
+    if user is None:
         raise bad_request("This invite link is invalid or has expired.")
-    user.password_hash, user.pending, user.active = await ahash_password(body.password), False, True
+    if user.pending:
+        if (p := password_problem(body.password)):
+            raise unprocessable(p)
+        user.password_hash, user.pending, user.active = await ahash_password(body.password), False, True
+    else:
+        if user.org_id == inv.org_id or user.role == "OWNER":
+            raise bad_request("This invite cannot move this account between workspaces.")
+        if not await averify_password(user.password_hash, body.password):
+            raise unauthorized("Current password is incorrect.")
+        # Membership changes only after the invited user proves account ownership.
+        # Revoke old sessions so every request immediately uses the new workspace and role.
+        old_org_id = user.org_id
+        audit(db, actor_for(request, user), "WORKSPACE_MEMBERSHIP_TRANSFERRED", user.email,
+              before=old_org_id, after=inv.org_id, org_id=old_org_id)
+        await db.execute(update(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+                         .values(revoked_at=utcnow()))
+        user.org_id, user.role = inv.org_id, inv.role
+        user.token_version += 1
     if body.name and body.name.strip():
         user.name = body.name.strip()
     inv.used_at = utcnow()

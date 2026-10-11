@@ -1,5 +1,5 @@
-import { Bell, Boxes, ClipboardCheck, Home, LogOut, ScanLine, ScrollText, Users, BarChart3, Warehouse, ListChecks, Moon, Sun, ZapOff, Command, CircleHelp, GitCompareArrows, Copyright } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Bell, Boxes, Home, LogOut, ScanLine, ScrollText, Users, BarChart3, Warehouse, ListChecks, Moon, Sun, ZapOff, Command, CircleHelp, GitCompareArrows, Copyright, ChevronDown, Settings } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { notifications } from '../../lib/api';
 import { ROLE_LABEL, useAuth } from '../../lib/auth';
@@ -8,12 +8,12 @@ import type { Notification, Role } from '../../lib/contract';
 import { cn } from '../../utils/cn';
 import { queuedUploads, removeQueuedUpload } from '../../lib/uploadQueue';
 import { scans } from '../../lib/api';
-import { Logo, btnGhost } from '../ui';
-import { ApprovalsPage } from './Approvals';
+import { Logo, btnPrimary } from '../ui';
 import { AuditPage } from './Audit';
 import { CatalogPage } from './Catalog';
 import { CreditsPage } from './Credits';
 import { HomePage } from './Home';
+import { InventoryPage } from './Inventory';
 import { InvitePage, LoginPage } from './Login';
 import { ReportsPage } from './Reports';
 import { ScanDetail } from './ScanDetail';
@@ -21,6 +21,7 @@ import { ScanNew } from './ScanNew';
 import { ScansList } from './ScansList';
 import { TeamPage } from './Team';
 import { ScanCompare } from './ScanCompare';
+import { InventoryAssistant } from './InventoryAssistant';
 import { Spinner, go, fmtDate } from './shared';
 
 type Item = { path: string; label: string; icon: typeof Home; cap?: Cap };
@@ -33,10 +34,10 @@ function initialWorkspaceTheme(): 'light' | 'dark' {
 
 /** Role-specific navigation (spec 1.7). Server still enforces; this only decides what to show. */
 const NAV: Record<Role, Item[]> = {
-  STAFF: [{ path: 'scan', label: 'Scan', icon: ScanLine }, { path: 'scans', label: 'My scans', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog', icon: Boxes }, { path: 'credits', label: 'Image credits', icon: Copyright }],
-  MANAGER: [{ path: '', label: 'Home', icon: Home }, { path: 'approvals', label: 'Approvals', icon: ClipboardCheck }, { path: 'scans', label: 'Scans', icon: ListChecks }, { path: 'scan', label: 'Scan', icon: ScanLine }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog & stock', icon: Warehouse }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
-  OWNER: [{ path: '', label: 'Home', icon: Home }, { path: 'approvals', label: 'Approvals', icon: ClipboardCheck }, { path: 'scans', label: 'Scans', icon: ListChecks }, { path: 'scan', label: 'Scan', icon: ScanLine }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog & stock', icon: Warehouse }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'team', label: 'Team & settings', icon: Users }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
-  AUDITOR: [{ path: '', label: 'Home', icon: Home }, { path: 'scans', label: 'Scans', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
+  STAFF: [{ path: 'inventory', label: 'Inventory', icon: Boxes }, { path: 'scans', label: 'My scans', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog', icon: Warehouse }, { path: 'credits', label: 'Image credits', icon: Copyright }],
+  MANAGER: [{ path: '', label: 'Home', icon: Home }, { path: 'inventory', label: 'Inventory', icon: Boxes }, { path: 'scans', label: 'Scans & approvals', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog & stock', icon: Warehouse }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
+  OWNER: [{ path: '', label: 'Home', icon: Home }, { path: 'inventory', label: 'Inventory', icon: Boxes }, { path: 'scans', label: 'Scans & approvals', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'catalog', label: 'Catalog & stock', icon: Warehouse }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'team', label: 'Team & settings', icon: Users }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
+  AUDITOR: [{ path: '', label: 'Home', icon: Home }, { path: 'inventory', label: 'Inventory', icon: Boxes }, { path: 'scans', label: 'Scans', icon: ListChecks }, { path: 'compare', label: 'Compare', icon: GitCompareArrows }, { path: 'reports', label: 'Reports', icon: BarChart3 }, { path: 'audit', label: 'Audit', icon: ScrollText }, { path: 'credits', label: 'Image credits', icon: Copyright }],
 };
 const LANDING: Record<Role, string> = { STAFF: 'scan', MANAGER: '', OWNER: '', AUDITOR: '' };
 
@@ -79,7 +80,7 @@ function Bell_() {
 }
 
 function Shell({ path, children }: { path: string; children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const [theme, setTheme] = useState(initialWorkspaceTheme);
   const [reduceEffects, setReduceEffects] = useState(() => localStorage.getItem('cx.reduce-effects') === 'true');
   const [palette, setPalette] = useState(false);
@@ -88,6 +89,8 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
   const [queueCount, setQueueCount] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
   const [queueMessage, setQueueMessage] = useState('');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const items = user ? NAV[user.role] : [];
   const active = (p: string) => (p === '' ? path === '' : path === p || path.startsWith(`${p}/`));
   useEffect(() => {
@@ -104,6 +107,15 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
       else if (e.key === 'Escape') { setPalette(false); setHelp(false); }
     };
     window.addEventListener('keydown', keys); return () => window.removeEventListener('keydown', keys);
+  }, []);
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setProfileOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setProfileOpen(false); };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => { document.removeEventListener('mousedown', closeOnOutsideClick); document.removeEventListener('keydown', closeOnEscape); };
   }, []);
   const refreshQueue = useCallback(async () => { try { setQueueCount((await queuedUploads()).length); } catch { setQueueCount(0); } }, []);
   const flushQueue = useCallback(async () => {
@@ -128,7 +140,8 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
     void refreshQueue(); if (navigator.onLine) void flushQueue();
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); window.removeEventListener('cx:queue-change', onQueue); };
   }, [flushQueue, refreshQueue]);
-  const commands = items.filter((i) => !i.cap).filter((i) => `${i.label} ${i.path}`.toLowerCase().includes(command.toLowerCase()));
+  const commands = [...items, ...(can('scan.capture') ? [{ path: 'scan', label: 'Scan', icon: ScanLine }] : [])]
+    .filter((i) => !i.cap).filter((i) => `${i.label} ${i.path}`.toLowerCase().includes(command.toLowerCase()));
   if (!user) return null;
   return (
     <div className="workspace-shell min-h-screen bg-paper md:flex" data-theme={theme} data-reduce-effects={reduceEffects}>
@@ -142,13 +155,8 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
             </button>
           ))}
         </nav>
-        <div className="border-t border-line pt-3 text-xs">
-          <p className="font-semibold">{user.name}</p>
-          <p className="text-muted">{ROLE_LABEL[user.role]} · {user.email}</p>
-          <button type="button" onClick={logout} className={cn(btnGhost, 'mt-2 -ml-2 !px-2 !py-1.5 text-xs')}><LogOut className="h-3.5 w-3.5" />Sign out</button>
-        </div>
       </aside>
-      <div className="min-w-0 flex-1 pb-20 md:pb-0">
+      <div className="min-w-0 flex-1 pb-32 md:pb-24">
         <header className="workspace-topbar flex items-center justify-between border-b border-line bg-white/80 px-4 py-4 backdrop-blur md:justify-end">
           <span className="md:hidden"><Logo compact /></span>
           <div className="flex items-center gap-1">
@@ -157,7 +165,22 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
             <button type="button" onClick={() => setReduceEffects((v) => !v)} aria-pressed={reduceEffects} aria-label="Reduce effects" title="Reduce effects" className={cn('grid h-9 w-9 place-items-center rounded-lg hover:bg-cream', reduceEffects && 'bg-brand-mist text-brand')}><ZapOff className="h-4 w-4" /></button>
             <button type="button" onClick={() => setHelp(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts · ?" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-cream"><CircleHelp className="h-4 w-4" /></button>
             <Bell_ />
-            <button type="button" onClick={logout} aria-label="Sign out" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-cream md:hidden"><LogOut className="h-[18px] w-[18px]" /></button>
+            <div className="relative ml-1" ref={profileRef}>
+              <button type="button" aria-haspopup="menu" aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)} className="flex h-10 items-center gap-2 rounded-xl px-2 hover:bg-cream focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-brand-mist text-xs font-bold text-brand">{user.name.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}</span>
+                <span className="hidden max-w-36 text-left sm:block"><span className="block truncate text-xs font-semibold text-ink">{user.name}</span><span className="block text-[10px] text-muted">{ROLE_LABEL[user.role]}</span></span>
+                <ChevronDown className="hidden h-4 w-4 text-muted sm:block" />
+              </button>
+              {profileOpen && <div role="menu" aria-label="Account menu" className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-line bg-white p-1.5 shadow-pop">
+                <div className="border-b border-line px-3 py-2.5">
+                  <p className="truncate text-sm font-semibold">{user.name}</p>
+                  <p className="truncate text-xs text-muted">{user.email}</p>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{ROLE_LABEL[user.role]}</p>
+                </div>
+                {can('users.manage') && <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); go('team'); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-ink hover:bg-cream"><Settings className="h-4 w-4 text-muted" />Settings</button>}
+                <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); void logout(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-danger hover:bg-danger/10"><LogOut className="h-4 w-4" />Sign out</button>
+              </div>}
+            </div>
           </div>
         </header>
         {(!online || queueCount > 0 || queueMessage) && <div role="status" className="border-b border-line bg-brand-mist px-4 py-2 text-xs font-medium text-ink">
@@ -165,6 +188,10 @@ function Shell({ path, children }: { path: string; children: ReactNode }) {
         </div>}
         <main className="mx-auto max-w-[1260px] px-4 py-6 md:px-10 md:py-7">{children}</main>
       </div>
+      {can('scan.capture') && <button type="button" onClick={() => go('scan')} aria-current={active('scan') ? 'page' : undefined} className={`${btnPrimary} fixed bottom-20 left-1/2 z-40 -translate-x-1/2 !px-7 !py-3.5 text-base shadow-[0_14px_34px_-12px_rgba(12,122,69,0.75)] md:bottom-6 md:left-[calc(50%_+_36px)] lg:left-[calc(50%_+_143px)]`}>
+        <ScanLine className="h-5 w-5" />Scan
+      </button>}
+      {can('inventory.view') && <InventoryAssistant />}
       <nav aria-label="Main" className="workspace-mobile-nav fixed inset-x-3 bottom-3 z-40 flex justify-around rounded-2xl border border-line bg-white/95 p-1.5 shadow-pop backdrop-blur md:hidden" style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}>
         {items.slice(0, 5).map((i) => (
           <button key={i.label} type="button" onClick={() => go(i.path)} aria-current={active(i.path) ? 'page' : undefined}
@@ -199,7 +226,7 @@ function NoPermission() {
 }
 
 export function Workspace({ hash }: { hash: string }) {
-  const { user, ready } = useAuth();
+  const { user, ready, can } = useAuth();
   const invite = hash.match(/^#\/invite\/(.+)$/);
   if (invite) return <InvitePage token={decodeURIComponent(invite[1])} />;
   if (!ready) return <div className="grid min-h-screen place-items-center"><Spinner /></div>;
@@ -210,15 +237,17 @@ export function Workspace({ hash }: { hash: string }) {
   const first = path.split('/')[0];
   // role landing page, and route guard: a path not in this role's nav (other than scan detail) is no-permission
   if (path === '' && LANDING[user.role] !== '') return <Redirect to={LANDING[user.role]} />;
-  const allowed = first === 'scans' || nav.some((i) => i.path === first);
+  const allowed = first === 'scans' || (first === 'inventory' && can('inventory.view')) || (first === 'scan' && can('scan.capture'))
+    || (first === 'approvals' && can('scan.approve')) || nav.some((i) => i.path === first);
 
   let page: ReactNode;
   if (!allowed) page = <NoPermission />;
   else if (first === '') page = <HomePage />;
   else if (first === 'scan') page = <ScanNew />;
-  else if (first === 'scans') page = path.split('/')[1] ? <ScanDetail key={path} id={path.split('/')[1]} /> : <ScansList />;
+  else if (first === 'scans') page = path.split('/')[1] ? <ScanDetail key={path} id={path.split('/')[1]} /> : <ScansList key="scans" />;
   else if (first === 'compare') page = <ScanCompare ids={path.split('/').slice(1)} />;
-  else if (first === 'approvals') page = <ApprovalsPage />;
+  else if (first === 'approvals') page = <ScansList key="approvals" initialView="approvals" />;
+  else if (first === 'inventory') page = <InventoryPage />;
   else if (first === 'catalog') page = <CatalogPage />;
   else if (first === 'reports') page = <ReportsPage />;
   else if (first === 'team') page = <TeamPage />;

@@ -9,6 +9,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import db as dbmod
@@ -31,7 +32,7 @@ from app.errors import ApiError, forbidden
 from app.infra.imaging import ImageRejected, aprocess_scan_image
 from app.infra.inference import InferenceError
 from app.infra.ratelimit import RateLimiter
-from app.models import Scan, User
+from app.models import Scan, ScanHistoryDismissal, User
 from app.permissions import can
 
 router = APIRouter(tags=["scans"])
@@ -42,6 +43,10 @@ class PatchBody(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=5000)
     action: Literal["ASSIGN", "NOT_A_PRODUCT", "UNKNOWN", "CONFIRM", "RESET"]
     sku: str | None = Field(default=None, max_length=64)
+
+
+class CountAdjustmentBody(BaseModel):
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 class NoteBody(BaseModel):
@@ -144,10 +149,40 @@ async def create_scans(request: Request, shelf_id: str = Form(...), device: str 
 @router.get("/scans")
 async def list_scans(db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("scan.view")),
                      status: str | None = None, mine: bool = False, shelf_id: str | None = None, person: str | None = None,
-                     date_from: str | None = None, date_to: str | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+                     date_from: str | None = None, date_to: str | None = None, include_cleared: bool = False,
+                     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     rows = await svc.list_scans(db, user, status=status, mine=mine, shelf_id=shelf_id, person=person, date_from=date_from,
-                                date_to=date_to, limit=limit, offset=offset)
-    return await svc.list_items(db, rows)
+                                date_to=date_to, limit=limit, offset=offset, include_cleared=include_cleared)
+    items = await svc.list_items(db, rows)
+    if include_cleared and rows:
+        hidden_ids = set(await db.scalars(select(ScanHistoryDismissal.scan_id).where(
+            ScanHistoryDismissal.user_id == user.id, ScanHistoryDismissal.scan_id.in_([scan.id for scan in rows]))))
+        for item in items:
+            item["cleared"] = item["scan_id"] in hidden_ids
+    return items
+
+
+@router.post("/scans/history/clear")
+async def clear_scan_history(db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("scan.view"))):
+    """Hide completed history for this user without deleting scans or affecting approvals/reports."""
+    q = select(Scan.id).where(Scan.org_id == user.org_id, Scan.status.in_(("APPROVED", "RETURNED", "FAILED", "ARCHIVED")))
+    if user.role == "STAFF":
+        q = q.where(Scan.created_by == user.id)
+    existing = set(await db.scalars(select(ScanHistoryDismissal.scan_id).where(ScanHistoryDismissal.user_id == user.id)))
+    scan_ids = set(await db.scalars(q)) - existing
+    db.add_all(ScanHistoryDismissal(user_id=user.id, scan_id=scan_id) for scan_id in scan_ids)
+    await db.commit()
+    return {"cleared": len(scan_ids)}
+
+
+@router.delete("/scans/{scan_id}/history", status_code=204)
+async def restore_scan_history(scan_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("scan.view"))):
+    """Restore one scan to this user's history; only scans in their organization can be restored."""
+    await svc.load_scan(db, user.org_id, scan_id)
+    await db.execute(delete(ScanHistoryDismissal).where(
+        ScanHistoryDismissal.user_id == user.id, ScanHistoryDismissal.scan_id == scan_id))
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/scans/{scan_id}")
@@ -192,6 +227,12 @@ async def scan_events(scan_id: str, request: Request, user: User = Depends(curre
 async def patch_detections(scan_id: str, body: PatchBody, request: Request, db: AsyncSession = Depends(get_db),
                            user: User = Depends(require_permission("scan.review")), storage=Depends(get_storage)):
     return await svc.patch_detections(db, storage, user, actor_for(request, user), scan_id, body.ids, body.action, body.sku)
+
+
+@router.patch("/scans/{scan_id}/counts/{sku}")
+async def set_count(scan_id: str, sku: str, body: CountAdjustmentBody, request: Request, db: AsyncSession = Depends(get_db),
+                    user: User = Depends(require_permission("scan.review")), storage=Depends(get_storage)):
+    return await svc.set_count(db, storage, user, actor_for(request, user), scan_id, sku, body.quantity)
 
 
 @router.post("/scans/{scan_id}/submit")

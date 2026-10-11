@@ -88,15 +88,19 @@ def within_tolerance(variance: int, expected: int, tol: dict[str, float]) -> boo
     return expected > 0 and (ab / expected) * 100 <= tol["pct"]
 
 
-def compute_summary(dets: list[Det], names: dict[str, str], expected: dict[str, int], tol: dict[str, float]) -> list[dict[str, Any]]:
+def compute_summary(dets: list[Det], names: dict[str, str], expected: dict[str, int], tol: dict[str, float],
+                    manual_counts: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """variance = reviewed - expected (spec 2.8). Shortfalls first, biggest gap first."""
     rev, det = reviewed_counts(dets), detected_counts(dets)
+    overrides = manual_counts or {}
     rows = []
-    for sku in set(rev) | set(det) | set(expected):
-        reviewed, exp = rev.get(sku, 0), expected.get(sku, 0)
+    for sku in set(rev) | set(det) | set(expected) | set(overrides):
+        ai_reviewed, exp = rev.get(sku, 0), expected.get(sku, 0)
+        reviewed = overrides.get(sku, ai_reviewed)
         variance = reviewed - exp
         rows.append({
             "sku": sku, "name": names.get(sku, sku), "detected": det.get(sku, 0), "reviewed": reviewed,
+            "ai_reviewed": ai_reviewed, "quantity_adjusted": sku in overrides,
             "expected": exp, "variance": variance,
             "status": "SHORTFALL" if variance < 0 else "SURPLUS" if variance > 0 else "OK",
             "within_tolerance": within_tolerance(variance, exp, tol),

@@ -11,9 +11,16 @@ export const auth = {
   me: () => api<Me>('/auth/me'),
   logout: () => api<void>('/auth/logout', { method: 'POST' }),
   logoutAll: () => api<void>('/auth/logout-all', { method: 'POST' }),
-  invite: (token: string) => api<{ email: string; role: string }>(`/invites/${encodeURIComponent(token)}`, { auth: false }),
+  invite: (token: string) => api<{ email: string; role: string; existing_account?: boolean }>(`/invites/${encodeURIComponent(token)}`, { auth: false }),
+  signup: (b: { email: string; password: string; name: string }) =>
+    api<TokenResponse>('/auth/signup', { method: 'POST', json: b, auth: false }),
   accept: (token: string, password: string, name?: string) =>
     api<TokenResponse>(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST', json: { password, name }, auth: false }),
+};
+
+export const inventoryAssistant = {
+  chat: (message: string, history: { role: 'user' | 'assistant'; content: string }[]) =>
+    api<{ answer: string }>('/assistant/chat', { method: 'POST', json: { message, history } }),
 };
 
 export const scans = {
@@ -23,8 +30,10 @@ export const scans = {
     f.set('image', frame, 'live-frame.jpg');
     return api<LiveFrameResult>('/scans/live-detect', { method: 'POST', form: f, signal });
   },
-  list: (q: { status?: string; mine?: boolean; shelf_id?: string; person?: string; date_from?: string; date_to?: string; limit?: number } = {}) =>
+  list: (q: { status?: string; mine?: boolean; shelf_id?: string; person?: string; date_from?: string; date_to?: string; include_cleared?: boolean; limit?: number; offset?: number } = {}) =>
     api<ScanItem[]>('/scans', { query: q }),
+  clearHistory: () => api<{ cleared: number }>('/scans/history/clear', { method: 'POST' }),
+  restoreHistory: (id: string) => api<void>(`/scans/${encodeURIComponent(id)}/history`, { method: 'DELETE' }),
   get: (id: string) => api<ScanView>(`/scans/${id}`),
   progress: (id: string) => api<Progress>(`/scans/${id}/progress`),
   create: (shelfId: string, files: File[], device?: string, requestIds?: string[]) => {
@@ -38,6 +47,8 @@ export const scans = {
   },
   patch: (id: string, ids: string[], action: PatchAction, sku?: string) =>
     api<ScanView>(`/scans/${id}/detections`, { method: 'PATCH', json: { ids, action, sku } }),
+  setCount: (id: string, sku: string, quantity: number | null) =>
+    api<ScanView>(`/scans/${id}/counts/${encodeURIComponent(sku)}`, { method: 'PATCH', json: { quantity } }),
   submit: (id: string, note?: string) => api<ScanView>(`/scans/${id}/submit`, { method: 'POST', json: { note: note || null } }),
   approve: (id: string) => api<ScanView>(`/scans/${id}/approve`, { method: 'POST' }),
   return: (id: string, note: string, pinned: string[]) => api<ScanView>(`/scans/${id}/return`, { method: 'POST', json: { note, pinned } }),
@@ -94,7 +105,7 @@ export const stock = {
 
 export const users = {
   list: () => api<AppUser[]>('/users'),
-  invite: (b: { email: string; role: string; name?: string }) => api<AppUser & { invite_token?: string }>('/users/invite', { method: 'POST', json: b }),
+  invite: (b: { email: string; role: string; name?: string }) => api<AppUser & { invite_token?: string; existing_account_move?: boolean }>('/users/invite', { method: 'POST', json: b }),
   patch: (id: string, b: { role?: string; active?: boolean; name?: string }) => api<AppUser>(`/users/${id}`, { method: 'PATCH', json: b }),
 };
 
@@ -114,7 +125,21 @@ export const settings = {
 };
 
 export const reports = {
-  summary: () => api<{ shrinkage_trend: number[]; accuracy: number; short_skus: number; surplus_skus: number; total_shrinkage: number }>('/reports/summary'),
+  inventory: () => api<{
+    product_count: number; total_on_hand: number | null; total_expected: number;
+    counted_shelves: number; total_shelves: number; last_counted_at: string | null;
+    items: { sku: string; name: string; on_hand: number | null; expected_qty: number; variance: number | null; min_qty: number; status: 'NOT_COUNTED' | 'LOW' | 'IN_STOCK' | 'PARTIAL' }[];
+  }>('/inventory'),
+  summary: () => api<{
+    shrinkage_trend: number[];
+    shrinkage_days: { date: string; units_short: number; approved_scans: number }[];
+    accuracy: number;
+    auto_resolved_boxes: number;
+    processed_boxes: number;
+    short_skus: number;
+    surplus_skus: number;
+    total_shrinkage: number;
+  }>('/reports/summary'),
   exportLowStock: () => download('/reports/low-stock/export', 'low-stock.csv'),
   lowStock: () => api<{ sku: string; name: string; on_hand: number; min_qty: number; reorder: number }[]>('/alerts/low-stock'),
 };

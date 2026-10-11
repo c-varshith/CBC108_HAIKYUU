@@ -235,10 +235,19 @@ class Scan(Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     pinned: Mapped[list[Any]] = mapped_column(JSONType, default=list)  # detection ids pinned by a Return
+    manual_counts: Mapped[dict[str, int]] = mapped_column(JSONType, default=dict)  # final counted quantity overrides by SKU
     current_approval_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class ScanHistoryDismissal(Base):
+    """Per-user history hiding; the underlying scan remains available to reports and teammates."""
+    __tablename__ = "scan_history_dismissals"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"), primary_key=True)
+    cleared_at: Mapped[datetime] = _created()
 
 
 class Detection(Base):

@@ -6,14 +6,19 @@ import type { Me, Role, TokenResponse } from './contract';
 
 /** Client mirror of backend/app/permissions.py. UI hides/disables only: the server stays the authority (and ScanView.permissions wins per scan). */
 const CAPS: Record<string, Role[]> = {
-  'scan.capture': ['OWNER', 'MANAGER', 'STAFF'],
+  'scan.capture': ['OWNER', 'MANAGER', 'STAFF', 'AUDITOR'],
   'scan.view': ['OWNER', 'MANAGER', 'STAFF', 'AUDITOR'],
-  'scan.review': ['OWNER', 'MANAGER', 'STAFF'],
+  'scan.review': ['OWNER', 'MANAGER', 'STAFF', 'AUDITOR'],
+  'scan.submit': ['OWNER', 'MANAGER', 'STAFF', 'AUDITOR'],
   'scan.approve': ['OWNER', 'MANAGER'],
+  'scan.reopen': ['OWNER', 'MANAGER'],
+  'scan.delete': ['OWNER', 'STAFF'],
+  'inventory.view': ['OWNER', 'MANAGER', 'STAFF', 'AUDITOR'],
   'catalog.write': ['OWNER', 'MANAGER'],
   'catalog.request': ['STAFF'],
   'catalog.resync': ['OWNER'],
   'stock.write': ['OWNER', 'MANAGER'],
+  'alerts.write': ['OWNER', 'MANAGER'],
   'settings.thresholds': ['OWNER'],
   'users.manage': ['OWNER'],
   'audit.view': ['OWNER', 'MANAGER', 'AUDITOR'],
@@ -23,13 +28,14 @@ export type Cap = keyof typeof CAPS;
 
 /** UI convenience only; API permissions remain authoritative. */
 export function roleCan(role: Role, cap: Cap): boolean {
-  return CAPS[cap].includes(role);
+  return CAPS[cap]?.includes(role) ?? false;
 }
 
 interface AuthValue {
   user: Me | null;
   ready: boolean; // false until the first silent refresh finished
   login: (email: string, password: string) => Promise<void>;
+  signup: (b: { email: string; password: string; name: string }) => Promise<void>;
   accept: (token: string, password: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   can: (cap: Cap) => boolean;
@@ -61,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     ready,
     login: async (email, password) => adopt(await auth.login(email, password)),
+    signup: async (b) => adopt(await auth.signup(b)),
     accept: async (token, password, name) => adopt(await auth.accept(token, password, name)),
     logout: async () => {
       try { await auth.logout(); } catch { /* cookie may already be gone */ }

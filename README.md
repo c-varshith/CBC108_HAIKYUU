@@ -35,6 +35,7 @@
 - Review scans, compare counts with expected stock, and approve submitted counts.
 - Use live camera detection where browser permissions and a secure origin are available.
 - Track scan decisions and inventory changes through reports and the audit trail.
+- Ask CaliBot questions about the workspace catalog, on-hand counts, low stock, and inventory coverage.
 
 ## Workflow
 
@@ -55,7 +56,27 @@ The standard stack starts the web app, API, PostgreSQL, Qdrant, and the real CPU
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080) and create the first Owner account. The default setup does not seed demo users or catalog data. Add product reference photos in **Catalog** before scanning to enable automatic SKU matching. The first worker startup downloads DINOv2 weights.
+Open [http://localhost:8080](http://localhost:8080) and create an account with your name, email, and password. The creator becomes Owner of a new, empty supermarket workspace. Owners invite Managers, Staff, and Auditors from **Team & settings**; invited members share that supermarket's catalog, shelves, scans, and inventory according to their role. Existing non-Owner accounts can join another supermarket by accepting its invite and confirming their current password. The default setup does not seed demo users or catalog data. Add products and reference photos in **Catalog** before scanning to enable automatic SKU matching. The first worker startup downloads DINOv2 weights.
+
+### CaliBot inventory assistant
+
+CaliBot appears as a chat button at the bottom-right of the workspace. It opens as a popup and can expand to a centered, larger panel. It is available to every workspace role and can answer questions about catalog products, on-hand counts, low-stock alerts, products with the highest counts, and count coverage. CaliBot is read-only; use the Catalog, Inventory, and Reports pages to make changes or review the full records.
+
+To enable CaliBot, add your GroqCloud key to the project-root `.env` file:
+
+```dotenv
+GROQ_API_KEY=your_groq_api_key
+# Optional; defaults to openai/gpt-oss-120b
+GROQ_MODEL=openai/gpt-oss-120b
+```
+
+Then build/recreate the API and web containers so Compose passes the key to the backend and publishes the frontend:
+
+```bash
+docker compose up -d --build api proxy
+```
+
+The key stays in the API container and is never sent to the browser. For each question, the backend supplies the active workspace’s catalog and inventory summary to Groq. On-hand quantities come from each shelf’s latest approved scan; expected quantities are configured values, not a live warehouse feed. Uncounted shelves and partial coverage are identified as such. Groq receives the workspace context and recent chat turns to generate its answer. Chat history is kept in the current browser session and is not saved as a Calibrex record. If `GROQ_API_KEY` is unset or the configured model is unavailable, the chat reports a setup/service error.
 
 The worker loads the fine-tuned checkpoint at `ai-worker/runs/detect/runs/detect/calibrex_s960/weights/best.pt`. Docker copies it into the worker image; a missing or invalid checkpoint causes startup to fail clearly. The optional H5 model is excluded from GitHub because of its size. To use it locally, place `iou_resnet50_csv_06.h5` in the project root and start with the H5 overlay:
 

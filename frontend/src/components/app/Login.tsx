@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { auth } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { setAccessToken } from '../../lib/http';
 import { Logo, btnPrimary } from '../ui';
 import { Notice, errMsg } from './shared';
 
@@ -21,12 +20,11 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function LoginPage() {
-  const { login } = useAuth();
-  const [mode, setMode] = useState<'login' | 'setup' | 'forgot'>('login');
+  const { login, signup } = useAuth();
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [org, setOrg] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -42,10 +40,7 @@ export function LoginPage() {
         setSent(true);
       } else if (mode === 'login') await login(email, password);
       else {
-        // First-run: the first account becomes the Owner. Then sign in through the normal path so state is set once.
-        await auth.register({ email, password, name, org_name: org || undefined });
-        setAccessToken(null);
-        await login(email, password);
+        await signup({ email, password, name });
       }
     } catch (err) {
       setError(errMsg(err));
@@ -55,24 +50,23 @@ export function LoginPage() {
   }
 
   return (
-    <Frame title={mode === 'login' ? 'Sign in' : mode === 'setup' ? 'Set up your organization' : 'Reset your password'}>
+    <Frame title={mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create your account' : 'Reset your password'}>
       <form onSubmit={submit} className="mt-5 space-y-4">
-        {mode === 'setup' && (
-          <>
-            <label className="block text-xs font-semibold">Your name<input className={field} value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" /></label>
-            <label className="block text-xs font-semibold">Organization<input className={field} value={org} onChange={(e) => setOrg(e.target.value)} placeholder="My store" /></label>
-          </>
+        {mode === 'signup' && (
+          <label className="block text-xs font-semibold">Your name<input className={field} value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" /></label>
         )}
         <label className="block text-xs font-semibold">Email<input className={field} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" /></label>
         {mode !== 'forgot' && <label className="block text-xs font-semibold">Password<input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
+        {mode === 'signup' && <p className="-mt-2 text-[11px] text-muted">Use at least 10 characters, including a letter and a number.</p>}
         {error && <Notice>{error}</Notice>}
         {sent && <p role="status" className="rounded-xl bg-brand-mist p-3 text-xs text-ink">If an active account matches that email, a password reset link has been sent.</p>}
-        <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : mode === 'setup' ? 'Create Owner account' : 'Email reset link'}</button>
+        {mode === 'signup' && <p className="text-[11px] leading-relaxed text-muted">This creates a new supermarket workspace and makes you its Owner. To join an existing supermarket as Staff, Manager, or Auditor, accept an invite from its Owner.</p>}
+        <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create Owner account' : 'Email reset link'}</button>
       </form>
       <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-muted">
         {mode === 'login' && <button type="button" onClick={() => { setMode('forgot'); setError(null); setSent(false); }}>Forgot password?</button>}
-        <button type="button" onClick={() => { setMode(mode === 'login' ? 'setup' : 'login'); setError(null); setSent(false); }}>
-          {mode === 'setup' ? 'Back to sign in' : mode === 'forgot' ? 'Back to sign in' : 'First time here? Set up the Owner account'}
+        <button type="button" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); setSent(false); }}>
+          {mode === 'signup' ? 'Already have an account? Sign in' : mode === 'forgot' ? 'Back to sign in' : 'Create an account'}
         </button>
       </div>
     </Frame>
@@ -103,7 +97,7 @@ export function ResetPasswordPage({ token }: { token: string }) {
 
 export function InvitePage({ token }: { token: string }) {
   const { accept } = useAuth();
-  const [info, setInfo] = useState<{ email: string; role: string } | null | 'bad'>(null);
+  const [info, setInfo] = useState<{ email: string; role: string; existing_account?: boolean } | null | 'bad'>(null);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -131,8 +125,9 @@ export function InvitePage({ token }: { token: string }) {
     <Frame title="Accept your invite">
       <p className="mt-2 text-sm text-muted">{info.email} · joining as <b>{info.role.toLowerCase()}</b></p>
       <form onSubmit={submit} className="mt-5 space-y-4">
-        <label className="block text-xs font-semibold">Your name<input className={field} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>
-        <label className="block text-xs font-semibold">Choose a password<input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" /></label>
+        {!info.existing_account && <label className="block text-xs font-semibold">Your name<input className={field} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>}
+        <label className="block text-xs font-semibold">{info.existing_account ? 'Current password' : 'Choose a password'}<input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete={info.existing_account ? 'current-password' : 'new-password'} /></label>
+        {info.existing_account && <p className="text-[11px] text-muted">This account already exists in another workspace. Confirm your password to move it into this supermarket. Its old workspace data remains separate.</p>}
         {error && <Notice>{error}</Notice>}
         <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>{busy ? 'Please wait…' : 'Create account'}</button>
       </form>

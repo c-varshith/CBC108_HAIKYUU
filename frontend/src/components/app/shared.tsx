@@ -134,11 +134,11 @@ export const ScanCanvas = memo(function ScanCanvas(props: {
         ctx.shadowBlur = 0; ctx.strokeStyle = '#e8512f'; ctx.lineWidth = sw;
         ctx.setLineDash([]); ctx.strokeRect(x1 + sw * 2, y1 + sw * 2, x2 - x1 - sw * 4, y2 - y1 - sw * 4);
       }
-      const sku = d.assigned_sku ?? d.top_matches[0]?.sku ?? '?';
+      const productName = d.assigned_name ?? d.top_matches[0]?.name ?? d.assigned_sku ?? d.top_matches[0]?.sku ?? 'Unknown';
       if (active || (showLabels && shown.length < 80)) {
         const font = Math.max(10, width / layout.w * 10);
         ctx.font = `bold ${font}px monospace`;
-        const label = `${d.state} · ${sku}`;
+        const label = `${d.state} · ${productName.length > 30 ? `${productName.slice(0, 29)}…` : productName}`;
         const labelY = Math.max(font + 5, y1);
         ctx.fillStyle = 'rgba(5,14,36,.92)';
         ctx.fillRect(x1, labelY - font - 6, ctx.measureText(label).width + 10, font + 8);

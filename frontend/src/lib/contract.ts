@@ -17,6 +17,7 @@ export interface Detection {
   state: DetState;
   top_matches: Match[];
   assigned_sku: string | null;
+  assigned_name?: string | null;
   det_confidence: number;
   corrected_by: string | null;
   deleted?: boolean;
@@ -31,7 +32,7 @@ export interface LiveFrameResult {
   estimates: LiveEstimate[];
 }
 export interface SummaryRow {
-  sku: string; name: string; detected: number; reviewed: number; expected: number; variance: number;
+  sku: string; name: string; detected: number; reviewed: number; ai_reviewed?: number; quantity_adjusted?: boolean; expected: number; variance: number;
   status: 'SHORTFALL' | 'OK' | 'SURPLUS'; within_tolerance: boolean;
 }
 export interface Totals { detected: number; sure: number; check: number; unknown: number; unresolved: number }
@@ -49,6 +50,7 @@ export interface ScanItem {
   scan_id: string; status: ScanStatus; shelf_id: string; shelf_name: string;
   created_by: UserRef; submitted_by: UserRef | null; created_at: string; totals: Totals; device: string | null;
   submitted_at?: string; submit_note?: string | null; can_approve?: boolean;
+  cleared?: boolean;
 }
 export interface Progress { scan_id: string; status: ScanStatus; step: string | null; pct: number | null; found: number | null; failure_reason: string | null }
 

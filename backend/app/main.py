@@ -14,7 +14,7 @@ from app.infra.inference import make_inference
 from app.infra.logging import RequestLogMiddleware, configure_logging
 from app.infra.mailer import make_mailer
 from app.infra.storage import make_storage
-from app.routers import admin, analyze, auth, catalog, media, scans, users, workflow
+from app.routers import admin, analyze, assistant, auth, catalog, media, scans, users, workflow
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -87,7 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ok = all(checks.values())
         return JSONResponse({"status": "ready" if ok else "degraded", **checks}, status_code=200 if ok else 503)
 
-    for r in (auth.router, users.router, scans.router, workflow.router, catalog.router, admin.router, media.router, analyze.router):
+    for r in (auth.router, users.router, scans.router, workflow.router, catalog.router, admin.router, media.router, analyze.router, assistant.router):
         app.include_router(r)
     return app
 

@@ -16,8 +16,8 @@ from app.domain.selectors import compute_summary, compute_totals, is_unresolved
 from app.domain.statemachine import EDITABLE, SUBMITTABLE, can_transition
 from app.errors import conflict, forbidden, not_found, unprocessable
 from app.infra.storage import Storage
-from app.models import (Approval, Comment, Detection, ExpectedStock, Scan, ScanEvent, ScanSummary, Shelf, Store,
-                        User, utcnow)
+from app.models import (Approval, Comment, Detection, ExpectedStock, Scan, ScanEvent, ScanHistoryDismissal,
+                        ScanSummary, Shelf, Store, User, utcnow)
 from app.permissions import approval_rule, can, can_delete_scan
 
 AUTO_REF = {"id": "system", "name": "Auto-approval (within tolerance)", "role": "MANAGER"}
@@ -64,12 +64,15 @@ def transition(db: AsyncSession, scan: Scan, to: str, actor: Actor, *, event: st
 
 # ------------------------------------------------------------------ permissions (computed per user, per scan)
 def scan_permissions(user: User, scan: Scan, unresolved: int) -> dict[str, bool]:
-    senior_or_own = user.role != "STAFF" or scan.created_by == user.id
+    own_scan_only = user.role in ("STAFF", "AUDITOR")
+    senior_or_own = not own_scan_only or scan.created_by == user.id
     manager_fix = scan.status == "SUBMITTED" and can(user.role, "scan.approve")
     rule = approval_rule(user.role, scan.submitted_by, user.id)
     return {
         "can_edit": can(user.role, "scan.review") and ((scan.status in EDITABLE and senior_or_own) or manager_fix),
-        "can_submit": can(user.role, "scan.submit") and scan.status in SUBMITTABLE and unresolved == 0 and senior_or_own,
+        # This describes who may submit the scan; unresolved boxes are surfaced as a disabled
+        # submit action in the UI and remain enforced by submit() below.
+        "can_submit": can(user.role, "scan.submit") and scan.status in SUBMITTABLE and senior_or_own,
         "can_approve": scan.status == "SUBMITTED" and rule.allowed and unresolved == 0,
         "can_reopen": scan.status == "APPROVED" and can(user.role, "scan.reopen"),
     }
@@ -87,7 +90,8 @@ def _det_view(d: Detection, names: dict[str, str]) -> dict[str, Any]:
     return {
         "id": d.id, "bbox": [round(d.x1, 1), round(d.y1, 1), round(d.x2, 1), round(d.y2, 1)], "state": d.state,
         "top_matches": [{"sku": m["sku"], "name": names.get(m["sku"], m["sku"]), "score": round(m["score"], 3)} for m in d.top_matches[:3]],
-        "assigned_sku": d.assigned_sku, "det_confidence": round(d.det_confidence, 3), "corrected_by": d.corrected_by,
+        "assigned_sku": d.assigned_sku, "assigned_name": names.get(d.assigned_sku) if d.assigned_sku else None,
+        "det_confidence": round(d.det_confidence, 3), "corrected_by": d.corrected_by,
         "deleted": d.deleted, "needs_review": d.needs_review, "accepted_unknown": d.accepted_unknown,
     }
 
@@ -98,7 +102,8 @@ async def scan_view(db: AsyncSession, storage: Storage, scan: Scan, user: User) 
     st = await get_org_settings(db, scan.org_id)
     totals = compute_totals(dets)
     snap = await db.get(ScanSummary, scan.id) if scan.status == "APPROVED" else None
-    summary = snap.rows if snap else compute_summary(dets, names, await expected_for_shelf(db, scan.shelf_id), st.tolerance)
+    summary = snap.rows if snap else compute_summary(dets, names, await expected_for_shelf(db, scan.shelf_id), st.tolerance,
+                                                     scan.manual_counts or {})
 
     appr = await db.get(Approval, scan.current_approval_id) if scan.current_approval_id else None
     users = await _users(db, {scan.created_by, scan.submitted_by, appr.decided_by if appr else None})
@@ -169,7 +174,7 @@ def _day(s: str, end: bool) -> datetime:
 
 
 async def list_scans(db: AsyncSession, user: User, *, status: str | None, mine: bool, shelf_id: str | None, person: str | None,
-                     date_from: str | None, date_to: str | None, limit: int, offset: int) -> list[Scan]:
+                     date_from: str | None, date_to: str | None, limit: int, offset: int, include_cleared: bool = False) -> list[Scan]:
     q = select(Scan).where(Scan.org_id == user.org_id)
     if mine or user.role == "STAFF":  # staff list = own scans (spec: "My scans"); detail by id follows the matrix
         q = q.where(Scan.created_by == user.id)
@@ -183,6 +188,9 @@ async def list_scans(db: AsyncSession, user: User, *, status: str | None, mine: 
         q = q.where(Scan.created_at >= _day(date_from, False))
     if date_to:
         q = q.where(Scan.created_at < _day(date_to, True))
+    if not include_cleared:
+        hidden = select(ScanHistoryDismissal.scan_id).where(ScanHistoryDismissal.user_id == user.id)
+        q = q.where(Scan.id.not_in(hidden))
     return list((await db.scalars(q.order_by(Scan.created_at.desc(), Scan.id).limit(limit).offset(offset))).all())
 
 
@@ -212,7 +220,7 @@ async def patch_detections(db: AsyncSession, storage: Storage, user: User, actor
     if not can(user.role, "scan.review"):
         raise forbidden()
     manager_fix = scan.status == "SUBMITTED" and can(user.role, "scan.approve")
-    if user.role == "STAFF" and scan.created_by != user.id:
+    if user.role in ("STAFF", "AUDITOR") and scan.created_by != user.id:
         raise forbidden("You can only change your own scans.")
     if not (scan.status in EDITABLE or manager_fix):
         raise conflict("This scan is locked." if scan.status in ("APPROVED", "ARCHIVED") else f"This scan cannot be edited while it is {scan.status.lower().replace('_', ' ')}.")
@@ -248,14 +256,44 @@ async def patch_detections(db: AsyncSession, storage: Storage, user: User, actor
 # ------------------------------------------------------------------ submit / approve / return / reopen
 async def _summary_rows(db: AsyncSession, scan: Scan, dets: list[Detection]):
     st = await get_org_settings(db, scan.org_id)
-    return compute_summary(dets, await product_names(db, scan.org_id), await expected_for_shelf(db, scan.shelf_id), st.tolerance), st
+    return compute_summary(dets, await product_names(db, scan.org_id), await expected_for_shelf(db, scan.shelf_id),
+                           st.tolerance, scan.manual_counts or {}), st
+
+
+async def set_count(db: AsyncSession, storage: Storage, user: User, actor: Actor, scan_id: str, sku: str,
+                    quantity: int | None) -> dict[str, Any]:
+    """Override one SKU's final counted quantity; null restores the reviewed box count."""
+    scan = await load_scan(db, user.org_id, scan_id, lock=True)
+    if not can(user.role, "scan.review"):
+        raise forbidden()
+    manager_fix = scan.status == "SUBMITTED" and can(user.role, "scan.approve")
+    if user.role in ("STAFF", "AUDITOR") and scan.created_by != user.id:
+        raise forbidden("You can only change your own scans.")
+    if not (scan.status in EDITABLE or manager_fix):
+        raise conflict("This scan is locked or cannot be edited in its current state.")
+    if sku not in {item_sku for item_sku, _ in await active_catalog(db, scan.org_id)}:
+        raise unprocessable("Choose an active product from the catalog.")
+
+    counts = dict(scan.manual_counts or {})
+    previous = counts.get(sku)
+    if quantity is None:
+        counts.pop(sku, None)
+    else:
+        counts[sku] = quantity
+    scan.manual_counts = counts
+    scan.updated_at = utcnow()
+    add_event(db, scan.id, actor.name, "COUNT_ADJUSTED",
+              f"{sku}: {previous if previous is not None else 'automatic'} → {quantity if quantity is not None else 'automatic'}")
+    audit(db, actor, "COUNT_ADJUSTED", scan.id, scan_id=scan.id, before={sku: previous}, after={sku: quantity})
+    await db.commit()
+    return await scan_view(db, storage, scan, user)
 
 
 async def submit(db: AsyncSession, storage: Storage, user: User, actor: Actor, scan_id: str, note: str | None) -> dict[str, Any]:
     scan = await load_scan(db, user.org_id, scan_id, lock=True)
     if not can(user.role, "scan.submit"):
         raise forbidden()
-    if user.role == "STAFF" and scan.created_by != user.id:
+    if user.role in ("STAFF", "AUDITOR") and scan.created_by != user.id:
         raise forbidden("You can only submit your own scans.")
     if scan.status not in SUBMITTABLE:
         raise conflict(f"A scan that is {scan.status.lower().replace('_', ' ')} cannot be submitted.")
@@ -382,7 +420,7 @@ async def delete_scan(db: AsyncSession, storage: Storage, user: User, actor: Act
     if not can_delete_scan(user.role, scan.status, scan.created_by, user.id):
         raise forbidden("You cannot delete this scan." if user.role != "STAFF" else "Staff can only delete their own drafts.")
     audit(db, actor, "SCAN_DELETED", scan.id, scan_id=scan.id, before=scan.status, after="DELETED")
-    for model in (Comment, ScanEvent, Approval, ScanSummary, Detection):
+    for model in (ScanHistoryDismissal, Comment, ScanEvent, Approval, ScanSummary, Detection):
         await db.execute(delete(model).where(model.scan_id == scan.id))
     from app.models import Notification
     await db.execute(delete(Notification).where(Notification.scan_id == scan.id))
@@ -393,7 +431,7 @@ async def delete_scan(db: AsyncSession, storage: Storage, user: User, actor: Act
 
 async def retry(db: AsyncSession, user: User, actor: Actor, scan_id: str) -> Scan:
     scan = await load_scan(db, user.org_id, scan_id, lock=True)
-    if user.role == "STAFF" and scan.created_by != user.id or not can(user.role, "scan.capture"):
+    if user.role in ("STAFF", "AUDITOR") and scan.created_by != user.id or not can(user.role, "scan.capture"):
         raise forbidden()
     if scan.status != "FAILED":
         raise conflict("Only a failed scan can be retried.")

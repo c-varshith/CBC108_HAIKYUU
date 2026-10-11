@@ -1,4 +1,4 @@
-"""RBAC matrix (spec 1.2). Direct port of the client's lib/permissions.ts so both sides agree.
+"""RBAC matrix (spec 1.2). Mirrors the client's frontend/src/lib/auth.tsx capability table.
 The server is the authority: every route is guarded by `require_permission` in deps.py."""
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ from dataclasses import dataclass
 ROLES = ("OWNER", "MANAGER", "STAFF", "AUDITOR")
 
 CAPS: dict[str, tuple[str, ...]] = {
-    "scan.capture": ("OWNER", "MANAGER", "STAFF"),
+    "scan.capture": ("OWNER", "MANAGER", "STAFF", "AUDITOR"),
     "scan.view": ("OWNER", "MANAGER", "STAFF", "AUDITOR"),
-    "scan.review": ("OWNER", "MANAGER", "STAFF"),
-    "scan.submit": ("OWNER", "MANAGER", "STAFF"),
+    "scan.review": ("OWNER", "MANAGER", "STAFF", "AUDITOR"),
+    "scan.submit": ("OWNER", "MANAGER", "STAFF", "AUDITOR"),
     "scan.approve": ("OWNER", "MANAGER"),
     "scan.reopen": ("OWNER", "MANAGER"),
     "scan.delete": ("OWNER", "STAFF"),  # STAFF: own drafts only, see can_delete_scan
+    "inventory.view": ("OWNER", "MANAGER", "STAFF", "AUDITOR"),
     "catalog.write": ("OWNER", "MANAGER"),
     "catalog.request": ("STAFF",),
     "catalog.resync": ("OWNER",),  # re-send every product's photos to the matching service (heavy)

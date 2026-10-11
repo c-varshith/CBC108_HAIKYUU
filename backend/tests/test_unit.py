@@ -134,8 +134,8 @@ def test_state_machine_main_road_and_dead_ends():
 # ---------------------------------------------------------------- permissions (spec 1.2 matrix)
 def test_permission_matrix():
     expect = {
-        "scan.capture": "OWNER MANAGER STAFF", "scan.view": "OWNER MANAGER STAFF AUDITOR", "scan.review": "OWNER MANAGER STAFF",
-        "scan.submit": "OWNER MANAGER STAFF", "scan.approve": "OWNER MANAGER", "scan.reopen": "OWNER MANAGER",
+        "scan.capture": "OWNER MANAGER STAFF AUDITOR", "scan.view": "OWNER MANAGER STAFF AUDITOR", "scan.review": "OWNER MANAGER STAFF AUDITOR",
+        "scan.submit": "OWNER MANAGER STAFF AUDITOR", "scan.approve": "OWNER MANAGER", "scan.reopen": "OWNER MANAGER",
         "catalog.write": "OWNER MANAGER", "stock.write": "OWNER MANAGER", "alerts.write": "OWNER MANAGER",
         "settings.thresholds": "OWNER", "users.manage": "OWNER", "audit.view": "OWNER MANAGER AUDITOR",
         "reports.export": "OWNER MANAGER AUDITOR", "catalog.request": "STAFF",

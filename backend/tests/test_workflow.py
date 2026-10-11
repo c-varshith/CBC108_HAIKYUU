@@ -19,7 +19,7 @@ async def test_staff_to_approval_happy_path(seeded):
     sid = await upload_scan(c, staff)
     v = await get_scan(c, staff, sid)
     assert v["status"] == "NEEDS_REVIEW" and v["totals"]["unresolved"] > 0
-    assert v["permissions"] == {"can_edit": True, "can_submit": False, "can_approve": False, "can_reopen": False}
+    assert v["permissions"] == {"can_edit": True, "can_submit": True, "can_approve": False, "can_reopen": False}
 
     # cannot submit while anything is unresolved
     r = await c.post(f"/scans/{sid}/submit", headers=staff, json={})

@@ -67,7 +67,7 @@ async function send(path: string, o: ReqOptions): Promise<Response> {
   if (o.json !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(o.json); }
   else if (o.form) body = o.form; // browser sets the multipart boundary
   if (o.auth !== false && accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return fetch(url(path, o.query), { method: o.method ?? 'GET', headers, body, credentials: 'include', signal: o.signal });
+  return fetch(url(path, o.query), { method: o.method ?? 'GET', headers, body, credentials: 'include', signal: o.signal, cache: 'no-store' });
 }
 
 export async function raw(path: string, o: ReqOptions = {}): Promise<Response> {

@@ -53,17 +53,21 @@ async def invite(body: InviteBody, request: Request, db: AsyncSession = Depends(
                  s: Settings = Depends(get_settings_dep), mailer=Depends(get_mailer)):
     email = body.email.lower()
     existing = await db.scalar(select(User).where(User.email == email))
-    if existing and not existing.pending:
-        raise conflict("Someone with that email already has an account.")
-    if existing and existing.org_id != me.org_id:
-        raise conflict("Someone with that email already has an account.")
+    moving_account = bool(existing and not existing.pending and existing.org_id != me.org_id)
+    if existing and existing.pending and existing.org_id != me.org_id:
+        raise conflict("That email already has a pending invite to another workspace.")
+    if existing and not existing.pending and existing.org_id == me.org_id:
+        raise conflict("This person is already a member of your workspace.")
+    if moving_account and existing and existing.role == "OWNER":
+        raise conflict("An Owner account cannot be moved. Use a separate team account.")
     user = existing or User(org_id=me.org_id, email=email, name=(body.name or email.split("@")[0]).strip(), role=body.role, active=False, pending=True)
-    user.role = body.role
-    if body.name:
-        user.name = body.name.strip()
     if existing is None:
         db.add(user)
         await db.flush()
+    elif not moving_account:
+        user.role = body.role
+        if body.name:
+            user.name = body.name.strip()
     await db.execute(update(Invite).where(Invite.user_id == user.id, Invite.used_at.is_(None)).values(used_at=utcnow()))  # old links die
     raw = new_token()
     db.add(Invite(org_id=me.org_id, user_id=user.id, email=email, role=body.role, token_hash=hash_token(raw),
@@ -74,6 +78,8 @@ async def invite(body: InviteBody, request: Request, db: AsyncSession = Depends(
     await mailer.send(email, "You have been invited to Calibrex",
                       f"{me.name} invited you as {body.role.title()}.\nAccept the invite: {link}\nThe link expires in {s.invite_ttl_hours // 24} days.")
     out = user_row(user)
+    if moving_account:
+        out.update(role=body.role, active=False, pending=True, existing_account_move=True)
     if s.expose_invite_token:  # demo / e2e only (refused in production by config validation)
         out["invite_token"] = raw
     return out

@@ -390,14 +390,24 @@ export function CatalogPage() {
                 {safeHref(p.source_url) && <> · <a href={safeHref(p.source_url)} target="_blank" rel="noopener noreferrer" className="underline">Open Food Facts</a></>}
               </p>
             )}
-            <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-              <label className="flex items-center gap-2 font-semibold">Expected
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <label className="flex items-center gap-2 font-semibold">Expected stock
                 {write && shelf ? <input type="number" min={0} defaultValue={qty(p.sku)} key={`${shelf}-${p.sku}-${qty(p.sku)}`} aria-label={`Expected quantity for ${p.name}`} className="w-20 rounded-lg border border-line-strong px-2 py-1.5 font-mono"
                   onBlur={(e) => { const v = e.target.value; if (v !== '' && Number(v) !== qty(p.sku)) stock.set(shelf, p.sku, Number(v)).then((r) => setExpected((c) => [...c.filter((x) => x.sku !== p.sku), r])).catch((x) => setError(errMsg(x))); }} />
                   : <span className="font-mono">{qty(p.sku) === '' ? '—' : qty(p.sku)}</span>}
               </label>
               {write && p.active && <AddPhotos p={p} onChanged={changed} />}
             </div>
+            {write && p.active && can('alerts.write') && <label className="mt-3 block text-xs font-semibold">Low-stock minimum
+              <input type="number" min={0} max={1_000_000} step={1} defaultValue={p.min_qty} key={`${p.sku}-${p.min_qty}`} aria-label={`Low-stock minimum for ${p.name}`} className="mt-1 w-full rounded-lg border border-line-strong px-2.5 py-2 font-mono font-normal"
+                onBlur={(e) => {
+                  const input = e.currentTarget;
+                  const value = input.valueAsNumber;
+                  if (!Number.isInteger(value) || value < 0) { input.value = String(p.min_qty); return; }
+                  if (value !== p.min_qty) catalog.patch(p.sku, { min_qty: value }).then(changed).catch((x) => { input.value = String(p.min_qty); setError(errMsg(x)); });
+                }} />
+              <span className="mt-1 block font-normal text-muted">Suggested order quantity brings stock up to this level.</span>
+            </label>}
             {write && p.active && p.status === 'ready' && <TestRecognition p={p} />}
           </li>
         ))}

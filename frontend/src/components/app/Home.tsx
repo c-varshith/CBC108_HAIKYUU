@@ -7,10 +7,21 @@ import { Spinner, StatusBadge, fmtDate, go } from './shared';
 type Summary = Awaited<ReturnType<typeof reports.summary>>;
 type Low = Awaited<ReturnType<typeof reports.lowStock>>;
 
-function Spark({ values }: { values: number[] }) {
-  const max = Math.max(1, ...values);
-  const pts = values.map((v, i) => `${(i / Math.max(values.length - 1, 1)) * 100},${28 - (v / max) * 26}`).join(' ');
-  return <svg viewBox="0 0 100 30" className="h-10 w-full" role="img" aria-label={`Shrinkage per day, last ${values.length} days: ${values.join(', ')}`}><polyline points={pts} fill="none" stroke="#0c7a45" strokeWidth="2" /></svg>;
+function Spark({ days }: { days: Summary['shrinkage_days'] }) {
+  const max = Math.max(1, ...days.map((day) => day.units_short));
+  const dateLabel = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+  };
+  return <div className="mt-3 grid grid-cols-8 gap-2" aria-label="Units short per day for the last 8 days">
+    {days.map((day) => <div key={day.date} title={`${dateLabel(day.date)}: ${day.approved_scans ? `${day.units_short} units short across ${day.approved_scans} approved scan${day.approved_scans === 1 ? '' : 's'}` : 'No approved scans'}`} className="flex min-w-0 flex-col items-center gap-1">
+      <span className="font-mono text-[10px] tabular-nums text-muted">{day.approved_scans ? day.units_short : '—'}</span>
+      <div className="flex h-7 w-full items-end justify-center border-b border-line">
+        {day.approved_scans > 0 && <span className="w-2/3 rounded-t bg-brand" style={{ height: `${Math.max(day.units_short ? 8 : 3, (day.units_short / max) * 100)}%` }} />}
+      </div>
+      <span className="text-[9px] text-muted">{dateLabel(day.date)}</span>
+    </div>)}
+  </div>;
 }
 
 function Tile({ label, value, onClick }: { label: string; value: string | number; onClick?: () => void }) {
@@ -42,11 +53,11 @@ export function HomePage() {
         {sum && <Tile label="Auto-resolved" value={`${sum.accuracy}%`} />}
         <Tile label="Low-stock products" value={low.length} />
       </div>
-      {sum && can('audit.view') && <div className="rounded-2xl border border-line bg-white p-4"><p className="text-xs font-bold">Shrinkage, last 8 days</p><Spark values={sum.shrinkage_trend} /></div>}
+      {sum && can('audit.view') && <div className="rounded-2xl border border-line bg-white p-4"><p className="text-xs font-bold">Units short from approved scans · last 8 days</p><Spark days={sum.shrinkage_days} /></div>}
       {low.length > 0 && (
         <div className="rounded-2xl border border-line bg-white p-4">
           <p className="mb-2 text-xs font-bold">Low stock</p>
-          <ul className="divide-y divide-line text-sm">{low.slice(0, 6).map((l) => <li key={l.sku} className="flex justify-between py-2"><span>{l.name}</span><span className="font-mono text-xs text-muted">{l.on_hand} / min {l.min_qty} · reorder {l.reorder}</span></li>)}</ul>
+          <ul className="divide-y divide-line text-sm">{low.slice(0, 6).map((l) => <li key={l.sku} className="flex justify-between py-2"><span>{l.name}</span><span className="font-mono text-xs text-muted">{l.on_hand} on hand · min {l.min_qty} · order {l.reorder} to min</span></li>)}</ul>
         </div>
       )}
       <div>

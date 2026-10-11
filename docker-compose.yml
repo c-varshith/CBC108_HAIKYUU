@@ -38,6 +38,8 @@ services:
       CORS_ORIGINS: http://localhost:8080,http://localhost:5173
       PUBLIC_APP_URL: http://localhost:8080
       LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:-5}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
       TRUST_PROXY_HEADERS: "true"
       SEED_ON_START: ${SEED_ON_START:-false}     # explicitly enable fixtures for development/tests
       EXPOSE_INVITE_TOKEN: ${EXPOSE_INVITE_TOKEN:-true}   # local development only, refused when ENV=production

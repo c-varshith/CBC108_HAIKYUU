@@ -85,6 +85,11 @@ class Settings(BaseSettings):
         "Canned Goods", "Olive Oil Bottle", "Almond Milk Carton", "Cracker Box", "Honey Jar",
         "Sparkling Water Can", "Cereal Box", "Pasta Pack", "Coffee Bag", "Pet Food Pouch"]
 
+    # --- inventory assistant (Groq OpenAI-compatible chat completions API) ---
+    groq_api_key: str | None = None
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+
     # --- mail ---
     mail_backend: Literal["console", "smtp"] = "console"
     mail_from: str = "Calibrex <no-reply@calibrex.local>"

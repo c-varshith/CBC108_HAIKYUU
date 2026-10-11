@@ -100,7 +100,10 @@ export function ScanDetail({ id }: { id: string }) {
   }, [open]);
   const unmatched = useMemo(() => live.filter((d) => !d.assigned_sku &&
     (d.accepted_unknown || d.state === 'UNKNOWN' || !d.top_matches[0])), [live]);
-  const skuEstimateTotal = useMemo(() => view?.summary.reduce((sum, row) => sum + row.detected, 0) ?? 0, [view?.summary]);
+  // The summary also contains expected-only SKUs for reconciliation. Keep those out of the
+  // estimate list: an item with no detected or reviewed boxes is not an AI estimate.
+  const estimatedRows = useMemo(() => view?.summary.filter((row) => row.detected > 0 || row.reviewed > 0 || row.quantity_adjusted) ?? [], [view?.summary]);
+  const skuEstimateTotal = useMemo(() => estimatedRows.reduce((sum, row) => sum + row.detected, 0), [estimatedRows]);
   const unknownNeedsReview = unmatched.some(isOpen);
 
   const canEdit = !!view?.permissions.can_edit;
@@ -192,6 +195,10 @@ export function ScanDetail({ id }: { id: string }) {
     catch (e) { setError(errMsg(e)); } finally { setBusy(false); }
   }
 
+  async function saveCount(sku: string, quantity: number | null) {
+    await run(() => scans.setCount(id, sku, quantity), quantity === null ? 'Count restored to the reviewed box total.' : 'Count updated. It will be used after approval.');
+  }
+
   if (!view) return error ? <Notice>{error}</Notice> : <Spinner />;
 
   const back = <button type="button" onClick={() => go('scans')} className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All scans</button>;
@@ -207,7 +214,7 @@ export function ScanDetail({ id }: { id: string }) {
   const unresolved = view.totals.unresolved;
   const pinnedFromManager = view.status === 'RETURNED' || view.pinned_detection_ids.length > 0 ? view.pinned_detection_ids : [];
   const candidates = selected ? selected.top_matches : [];
-  const filtered = products.filter((x) => (x.sku + x.name).toLowerCase().includes(search.toLowerCase())).slice(0, 8);
+  const filtered = products.filter((x) => `${x.sku} ${x.name} ${x.brand ?? ''} ${x.barcode ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8);
   const shortfalls = view.summary.filter((r) => r.status === 'SHORTFALL' && !r.within_tolerance);
 
   return (
@@ -222,7 +229,7 @@ export function ScanDetail({ id }: { id: string }) {
           {canEdit && history.current.length > 0 && <button type="button" className={btnSecondary} onClick={undo} disabled={busy}><Undo2 className="h-4 w-4" />Undo last fix</button>}
           {can('reports.export') && <button type="button" className={btnSecondary} onClick={() => scans.export(id, 'csv').catch((e) => setError(errMsg(e)))}><Download className="h-4 w-4" />CSV</button>}
           {can('reports.export') && <button type="button" className={btnSecondary} onClick={() => scans.export(id, 'pdf').catch((e) => setError(errMsg(e)))}>PDF</button>}
-          {p.can_submit && <button type="button" className={btnPrimary} disabled={busy || unresolved > 0} onClick={() => setSheet('submit')} title={unresolved > 0 ? `${unresolved} boxes still need a decision` : undefined}><Send className="h-4 w-4" />Submit for approval</button>}
+          {p.can_submit && <button type="button" className={btnPrimary} disabled={busy || unresolved > 0} onClick={() => setSheet('submit')} title={unresolved > 0 ? `Review ${unresolved} flagged boxes before submitting` : undefined}><Send className="h-4 w-4" />Submit reviewed count</button>}
           {p.can_approve && <button type="button" className={btnPrimary} disabled={busy || unresolved > 0} onClick={() => run(() => scans.approve(id), 'Scan approved and locked.')}>Approve</button>}
           {p.can_approve && <button type="button" className={btnSecondary} disabled={busy} onClick={() => setSheet('return')}>Return…</button>}
           {p.can_reopen && <button type="button" className={btnSecondary} disabled={busy} onClick={() => setSheet('reopen')}><RotateCcw className="h-4 w-4" />Reopen</button>}
@@ -235,6 +242,10 @@ export function ScanDetail({ id }: { id: string }) {
       {error && <div className="mb-4"><Notice>{error}</Notice></div>}
       {notice && <div className="mb-4"><Notice tone="brand">{notice}</Notice></div>}
       {!canEdit && view.status === 'APPROVED' && <div className="mb-4"><Notice tone="brand">This scan is approved and locked (read-only).</Notice></div>}
+      {view.status === 'APPROVED' && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/25 bg-brand-mist px-4 py-3 text-sm">
+        <span>The approved product counts are reflected in Inventory.</span>
+        <button type="button" className={btnSecondary} onClick={() => go('inventory')}>View inventory</button>
+      </div>}
 
       <div className="space-y-4">
         <div className="space-y-3">
@@ -293,17 +304,18 @@ export function ScanDetail({ id }: { id: string }) {
                   </div>
                   {canEdit ? (
                     <>
-                      {selected.state === 'UNKNOWN' && !selected.assigned_sku ? (
-                        <p className="rounded-xl border border-line px-3 py-2.5 text-xs text-muted">Unsure: no confident catalog match. Search the catalog below, or register it as a new product.</p>
-                      ) : (
+                      {selected.state === 'UNKNOWN' && !selected.assigned_sku && (
+                        <p className="rounded-xl border border-line px-3 py-2.5 text-xs text-muted">No match passed the confidence threshold. These are the closest catalog products; choose one if it is correct, or search the catalog.</p>
+                      )}
+                      {candidates.length > 0 && (
                       <ul className="space-y-1.5" aria-label="Suggested products">
                         {candidates.map((m, i) => (
-                          <li key={m.sku}><button type="button" disabled={busy} onClick={() => act(i === 0 ? 'CONFIRM' : 'ASSIGN', m.sku)} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-line-strong px-3 text-left text-sm hover:border-brand">
-                            <span><kbd className="mr-2 rounded bg-cream px-1.5 font-mono text-[10px]">{i + 1}</kbd>{m.name ?? m.sku}</span><span className="font-mono text-xs text-muted">{Math.round(m.score * 100)}%</span></button></li>
+                          <li key={m.sku}><button type="button" disabled={busy} onClick={() => act(selected.state === 'CHECK' && i === 0 ? 'CONFIRM' : 'ASSIGN', m.sku)} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-line-strong px-3 text-left text-sm hover:border-brand">
+                            <span><kbd className="mr-2 rounded bg-cream px-1.5 font-mono text-[10px]">{i + 1}</kbd>{m.name ?? m.sku}<span className="ml-2 font-mono text-[10px] text-muted">{m.sku}</span></span><span className="font-mono text-xs text-muted">Similarity {m.score.toFixed(2)}</span></button></li>
                         ))}
-                        {candidates.length === 0 && <li className="text-xs text-muted">No close matches in the catalog.</li>}
                       </ul>
                       )}
+                      {candidates.length === 0 && <p className="text-xs text-muted">No suggested catalog products. Search by product name, brand, barcode, or SKU.</p>}
                       {selected.state !== 'UNKNOWN' && selected.top_matches[0] && <button type="button" disabled={busy} className={`${btnSecondary} w-full`} onClick={applySimilar}>
                         Apply {selected.assigned_sku ?? selected.top_matches[0].sku} to similar boxes
                       </button>}
@@ -338,14 +350,22 @@ export function ScanDetail({ id }: { id: string }) {
               <div className="rounded-2xl border border-brand/20 bg-brand-mist p-4 shadow-sm sm:p-5">
                 <p className="text-sm font-semibold tracking-[-0.01em] text-ink">AI quantity estimates <span className="font-normal text-muted">· human approval required</span></p>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted">
-                  Quantities count visible detected packages. Unmatched packages stay under Unknown; add product reference photos for automatic SKU matching. Review flagged boxes before submitting for manager approval.
+                  Product names come from the catalog. For uncertain matches, choose the correct catalog suggestion or search by name, brand, barcode, or SKU. After every flagged box is resolved, submit the reviewed count; Inventory updates when an Owner or Manager approves it.
                 </p>
                 {canEdit && open.length > 0 && <button type="button" className={`${btnPrimary} mt-4 w-full`} onClick={() => { setTab('review'); setSel(open[0].id); }}>
                   Review flagged boxes ({open.length})
                 </button>}
-                {canEdit && open.length === 0 && <p className="mt-3 text-sm font-semibold text-brand">All flagged boxes are resolved. Submit for manager approval when ready.</p>}
-                {p.can_approve && view.status === 'SUBMITTED' && <p className="mt-3 text-sm font-semibold text-brand">Review these estimates, then approve or return the scan.</p>}
+                {canEdit && open.length === 0 && <p className="mt-3 text-sm font-semibold text-brand">All flagged boxes are resolved. Submit the reviewed count for approval.</p>}
+                {p.can_submit && <div className="mt-4 rounded-xl border border-line bg-white p-3">
+                  <p className="text-xs leading-relaxed text-muted">{unresolved > 0 ? `Resolve the ${unresolved} flagged boxes to enable submission.` : 'Submit these reviewed product counts. Inventory updates after an Owner or Manager approves the scan.'}</p>
+                  <button type="button" disabled={busy || unresolved > 0} title={unresolved > 0 ? `${unresolved} flagged boxes still need a decision` : undefined} className={`${btnPrimary} mt-3 w-full`} onClick={() => setSheet('submit')}>
+                    <Send className="h-4 w-4" />Submit reviewed count
+                  </button>
+                </div>}
+                {view.status === 'SUBMITTED' && <p className="mt-3 text-sm font-semibold text-brand">{p.can_approve ? 'Review these estimates, then approve or return the scan to update Inventory.' : 'Submitted. Inventory will update after an authorized approver approves this scan.'}</p>}
               </div>
+              {canEdit && <ManualProductCount products={products.filter((product) => !estimatedRows.some((row) => row.sku === product.sku))}
+                disabled={busy} onSave={saveCount} />}
               <div className="grid grid-cols-3 gap-2 text-center">
                 {[
                   { label: 'Visible items', value: view.totals.detected },
@@ -373,7 +393,7 @@ export function ScanDetail({ id }: { id: string }) {
                   </dl>
                   {canEdit && unknownNeedsReview && <button type="button" className="mt-3 max-w-full break-words text-left text-xs font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand" onClick={() => { setTab('review'); setSel(unmatched.find(isOpen)?.id ?? unmatched[0]?.id ?? null); }}>Review unknown items</button>}
                 </article>}
-                {[...view.summary].sort((a, b) => a.variance - b.variance).map((r) => {
+                {[...estimatedRows].sort((a, b) => a.variance - b.variance).map((r) => {
                   const flagged = openBySku.get(r.sku) ?? [];
                   return <article key={r.sku} className={cn('min-w-0 rounded-2xl border bg-white p-4 shadow-sm sm:p-5', r.status === 'SHORTFALL' ? 'border-danger/20' : r.status === 'SURPLUS' ? 'border-warn/25' : 'border-line')}>
                     <div className="flex min-w-0 items-start justify-between gap-2">
@@ -386,7 +406,16 @@ export function ScanDetail({ id }: { id: string }) {
                       </span>
                     </div>
                     <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2.5">
-                      {[['Est. qty', r.detected], ['Resolved', r.reviewed], ['Expected', r.expected], ['Variance', `${r.variance > 0 ? '+' : ''}${r.variance}`]].map(([label, value]) => (
+                      <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-line pt-2">
+                        <dt className="truncate text-xs text-muted">AI est. qty</dt>
+                        <dd className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">{r.detected}</dd>
+                      </div>
+                      <div className="flex min-w-0 items-start justify-between gap-2 border-t border-line pt-2">
+                        <dt className="pt-1 truncate text-xs text-muted">Counted qty</dt>
+                        <dd className="shrink-0"><CountEditor quantity={r.reviewed} aiQuantity={r.ai_reviewed ?? r.reviewed}
+                          adjusted={r.quantity_adjusted ?? false} disabled={!canEdit || busy} onSave={(quantity) => saveCount(r.sku, quantity)} /></dd>
+                      </div>
+                      {[['Expected', r.expected], ['Variance', `${r.variance > 0 ? '+' : ''}${r.variance}`]].map(([label, value]) => (
                         <div key={label} className="flex min-w-0 items-baseline justify-between gap-2 border-t border-line pt-2">
                           <dt className="truncate text-xs text-muted">{label}</dt>
                           <dd className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">{value}</dd>
@@ -396,7 +425,7 @@ export function ScanDetail({ id }: { id: string }) {
                     {flagged.length > 0 && canEdit && <button type="button" className="mt-3 max-w-full break-words text-left text-xs font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand" onClick={() => { setTab('review'); setSel(flagged[0]); }}>Review {flagged.length} flagged {flagged.length === 1 ? 'box' : 'boxes'}</button>}
                   </article>;
                 })}
-                {view.summary.length === 0 && unmatched.length === 0 && <p className="p-6 text-center text-xs text-muted">No item estimates are available yet.</p>}
+                {estimatedRows.length === 0 && unmatched.length === 0 && <p className="p-6 text-center text-xs text-muted">No catalog-matched items were detected. Unknown detections appear above.</p>}
               </div>
             </div>
           )}
@@ -423,7 +452,7 @@ export function ScanDetail({ id }: { id: string }) {
         <div role="dialog" aria-modal="true" aria-label={sheet} className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-0 md:items-center md:p-4">
           <div className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-pop md:rounded-2xl">
             <h2 className="text-lg font-bold">{sheet === 'submit' ? 'Submit for approval' : sheet === 'return' ? 'Return to staff' : 'Reopen scan'}</h2>
-            {sheet === 'submit' && <ul className="mt-2 space-y-1 text-sm text-muted"><li>✓ All flagged boxes resolved</li><li>{shortfalls.length ? `⚠ ${shortfalls.length} SKU${shortfalls.length > 1 ? 's' : ''} short of expected` : '✓ No shortfalls beyond tolerance'}</li></ul>}
+            {sheet === 'submit' && <><ul className="mt-2 space-y-1 text-sm text-muted"><li>✓ All flagged boxes resolved</li><li>{shortfalls.length ? `⚠ ${shortfalls.length} SKU${shortfalls.length > 1 ? 's' : ''} short of expected` : '✓ No shortfalls beyond tolerance'}</li></ul><p className="mt-3 text-xs leading-relaxed text-muted">An Owner or Manager must approve this count before it becomes the latest inventory count for this shelf.</p></>}
             {sheet === 'return' && <p className="mt-2 text-xs text-muted">{pins.length} box{pins.length === 1 ? '' : 'es'} pinned. Select a box and use “Pin to return note” to point at specific items.</p>}
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder={sheet === 'submit' ? 'Optional note' : sheet === 'return' ? 'What should be fixed?' : 'Reason (required)'} className="mt-3 w-full rounded-xl border border-line-strong p-3 text-sm" />
             <div className="mt-4 flex justify-end gap-2">
@@ -454,6 +483,62 @@ function CropAsReference({ sku, scanId, detectionId }: { sku: string; scanId: st
       <button type="button" disabled={busy} className={`${btnSecondary} w-full`} onClick={() => void add()}>{busy ? 'Adding…' : 'Add this crop as a reference photo'}</button>
       <p className="text-[11px] text-muted">Saves this box as another photo of <span className="font-mono">{sku}</span>, so the next scan recognises it on a real shelf. No retraining.</p>
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+    </div>
+  );
+}
+
+function CountEditor({ quantity, aiQuantity, adjusted, disabled, onSave }: {
+  quantity: number; aiQuantity: number; adjusted: boolean; disabled: boolean; onSave: (quantity: number | null) => void;
+}) {
+  const [value, setValue] = useState(String(quantity));
+  useEffect(() => setValue(String(quantity)), [quantity]);
+  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  const valid = Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 1_000_000;
+  const dirty = valid && parsed !== quantity;
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <input type="number" min={0} max={1_000_000} step={1} value={value} disabled={disabled}
+          onChange={(e) => setValue(e.target.value)} aria-label="Counted quantity" className="w-20 rounded-lg border border-line-strong px-2 py-1 text-right font-mono text-sm tabular-nums" />
+        <button type="button" className="rounded-lg bg-ink px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+          disabled={disabled || !dirty} onClick={() => onSave(parsed)}>Save</button>
+      </div>
+      {adjusted && <button type="button" disabled={disabled} onClick={() => onSave(null)} className="text-[10px] font-semibold text-brand underline disabled:opacity-40">
+        Reset to reviewed total ({aiQuantity})
+      </button>}
+    </div>
+  );
+}
+
+function ManualProductCount({ products, disabled, onSave }: {
+  products: Product[]; disabled: boolean; onSave: (sku: string, quantity: number | null) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Product | null>(null);
+  const [quantity, setQuantity] = useState('0');
+  const matches = search.trim() ? products.filter((p) => `${p.name} ${p.sku} ${p.brand ?? ''} ${p.barcode ?? ''}`
+    .toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8) : [];
+  const parsed = /^\d+$/.test(quantity) ? Number(quantity) : Number.NaN;
+  const valid = Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 1_000_000;
+  return (
+    <div className="rounded-xl border border-line bg-white p-3">
+      <p className="text-xs font-semibold text-ink">Add a missed catalog product</p>
+      <p className="mt-1 text-[11px] text-muted">Use this when a product wasn’t detected in the photo. Its AI estimate stays 0; the counted quantity is saved for Inventory after approval.</p>
+      {!selected ? <div className="mt-2">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, brand, barcode, or SKU" aria-label="Search catalog to add a missed product" className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm" />
+        {search && <ul className="mt-1 max-h-40 overflow-auto rounded-xl border border-line">{matches.map((p) => <li key={p.sku}>
+          <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-cream" onClick={() => { setSelected(p); setSearch(''); setQuantity('0'); }}>
+            {p.name} <span className="font-mono text-xs text-muted">{p.sku}</span>
+          </button>
+        </li>)}{matches.length === 0 && <li className="px-3 py-2 text-xs text-muted">No active catalog product matches.</li>}</ul>}
+      </div> : <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 text-sm font-semibold">{selected.name} <span className="font-mono text-xs text-muted">{selected.sku}</span></span>
+        <label className="flex items-center gap-1.5 text-xs text-muted">Count
+          <input type="number" min={0} max={1_000_000} step={1} value={quantity} disabled={disabled} onChange={(e) => setQuantity(e.target.value)} aria-label={`Count for ${selected.name}`} className="w-20 rounded-lg border border-line-strong px-2 py-1 text-right font-mono text-sm text-ink" />
+        </label>
+        <button type="button" disabled={disabled || !valid} className={btnPrimary} onClick={() => { onSave(selected.sku, parsed); setSelected(null); setQuantity('0'); }}>Save count</button>
+        <button type="button" disabled={disabled} className={btnSecondary} onClick={() => setSelected(null)}>Cancel</button>
+      </div>}
     </div>
   );
 }

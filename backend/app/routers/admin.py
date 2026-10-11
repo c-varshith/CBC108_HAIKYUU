@@ -135,6 +135,11 @@ async def reports_summary(db: AsyncSession = Depends(get_db), user: User = Depen
     return await reports.summary_report(db, user.org_id)
 
 
+@router.get("/inventory")
+async def inventory(db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("inventory.view"))):
+    return await reports.inventory_report(db, user.org_id)
+
+
 @router.get("/alerts/low-stock")
 async def low_stock(db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("scan.view"))):
     return await reports.low_stock(db, user.org_id)

@@ -11,12 +11,12 @@
   </p>
 </div>
 
-> **Human review stays in the loop:** Calibrex counts visible package detections. Staff review and correct estimates before a manager approves a scan.
-
 <p align="center">
   <img src="docs/screenshots/landing.png" alt="Calibrex landing page" width="49%">
   <img src="docs/screenshots/dashboard.png" alt="Calibrex workspace dashboard" width="49%">
 </p>
+
+> **Human review stays in the loop:** Calibrex counts visible package detections. Staff review and correct estimates before a manager approves a scan.
 
 ## At a glance
 

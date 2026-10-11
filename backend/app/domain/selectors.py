@@ -61,8 +61,10 @@ def reviewed_counts(dets: Iterable[Det]) -> dict[str, int]:
 def detected_counts(dets: Iterable[Det]) -> dict[str, int]:
     m: dict[str, int] = defaultdict(int)
     for d in dets:
-        sku = d.assigned_sku or (d.top_matches[0]["sku"] if d.top_matches else None)
-        if d.deleted or not sku:
+        # A weak top match on an UNKNOWN box is only a suggestion, not an SKU estimate.
+        # CHECK boxes remain estimated under their best candidate until staff corrects them.
+        sku = d.assigned_sku or (d.top_matches[0]["sku"] if d.state in ("SURE", "CHECK") and d.top_matches else None)
+        if d.deleted or d.accepted_unknown or not sku:
             continue
         m[sku] += 1
     return dict(m)

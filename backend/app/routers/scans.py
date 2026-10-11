@@ -156,6 +156,12 @@ async def get_scan(scan_id: str, db: AsyncSession = Depends(get_db), user: User 
     return await svc.scan_view(db, storage, scan, user)
 
 
+@router.get("/scans/{scan_id}/progress")
+async def scan_progress(scan_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("scan.view"))):
+    scan = await svc.load_scan(db, user.org_id, scan_id)
+    return _progress(scan)
+
+
 @router.get("/scans/{scan_id}/events")
 async def scan_events(scan_id: str, request: Request, user: User = Depends(current_user_sse)):
     """Server-sent progress for the processing screen. Sessions are short: each poll opens its own DB session."""

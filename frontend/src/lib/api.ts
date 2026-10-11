@@ -26,6 +26,7 @@ export const scans = {
   list: (q: { status?: string; mine?: boolean; shelf_id?: string; person?: string; date_from?: string; date_to?: string; limit?: number } = {}) =>
     api<ScanItem[]>('/scans', { query: q }),
   get: (id: string) => api<ScanView>(`/scans/${id}`),
+  progress: (id: string) => api<Progress>(`/scans/${id}/progress`),
   create: (shelfId: string, files: File[], device?: string, requestIds?: string[]) => {
     const f = new FormData();
     f.set('shelf_id', shelfId);

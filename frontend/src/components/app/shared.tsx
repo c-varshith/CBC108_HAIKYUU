@@ -264,7 +264,7 @@ export const ScanCanvas = memo(function ScanCanvas(props: {
         <button type="button" role="menuitem" className="block w-full rounded-lg px-3 py-2 text-left hover:bg-cream" onClick={() => { onMultiSelect?.(similar); setMenu(null); }}>Select {similar.length} with same suggestion</button>
         <button type="button" role="menuitem" className="block w-full rounded-lg px-3 py-2 text-left text-muted hover:bg-cream" onClick={() => setMenu(null)}>Close menu</button>
       </div>}
-      {scanning && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1/4 animate-scan"><div className="h-full w-full bg-gradient-to-b from-transparent via-cyan-300/10 to-cyan-300/30" /><div className="absolute inset-x-0 bottom-0 h-px bg-cyan-200/80 shadow-[0_0_16px_2px_rgba(34,211,238,0.6)]" /></div>}
+      {scanning && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1/3 scan-sweep"><div className="h-full w-full bg-gradient-to-b from-transparent via-cyan-300/20 to-cyan-200/45" /><div className="absolute inset-x-0 bottom-0 h-0.5 bg-cyan-100 shadow-[0_0_18px_3px_rgba(34,211,238,0.8)]" /></div>}
     </div>
     </div>
   );

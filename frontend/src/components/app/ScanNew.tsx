@@ -130,11 +130,15 @@ export function ScanNew() {
               {f.type.startsWith('image/') && f.type !== 'image/heic' && f.type !== 'image/heif'
                 ? <img src={URL.createObjectURL(f)} alt={f.name} className="aspect-square w-full object-cover" onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)} />
                 : <div className="grid aspect-square place-items-center text-xs text-muted">{f.name}</div>}
-              <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles((c) => c.filter((_, j) => j !== i))} className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-ink/80 text-white"><X className="h-3.5 w-3.5" /></button>
+              {busy && navigator.onLine && i === 0 && <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden bg-ink/10">
+                <div className="absolute inset-x-0 top-0 h-1/4 animate-scan"><div className="h-full bg-gradient-to-b from-transparent via-cyan-300/20 to-cyan-300/40" /><div className="absolute inset-x-0 bottom-0 h-px bg-cyan-200 shadow-[0_0_16px_2px_rgba(34,211,238,0.8)]" /></div>
+              </div>}
+              <button type="button" disabled={busy} aria-label={`Remove ${f.name}`} onClick={() => setFiles((c) => c.filter((_, j) => j !== i))} className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-ink/80 text-white disabled:opacity-50"><X className="h-3.5 w-3.5" /></button>
             </li>
           ))}
         </ul>
       )}
+      {busy && navigator.onLine && <p className="text-center text-xs font-semibold text-brand" role="status">Uploading the photo and starting package detection…</p>}
       {error && <Notice>{error}</Notice>}
       {offlineMessage && <Notice tone="warn">{offlineMessage}</Notice>}
       {!navigator.onLine && <Notice tone="warn">You’re offline. Uploads will be saved on this device until the connection returns.</Notice>}

@@ -1,6 +1,5 @@
 import { ArrowLeft, Download, Pin, RotateCcw, Send, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { catalog, scans, watchScan } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { DetState, PatchAction, Product, Progress, ScanView } from '../../lib/contract';
@@ -18,8 +17,23 @@ function Processing({ view, reload }: { view: ScanView; reload: () => void }) {
   useEffect(() => {
     let stop: (() => void) | null = null;
     let poll: number | null = null;
+    let polling = false;
     let alive = true;
-    const fallback = () => { if (poll === null) poll = window.setInterval(reload, 2000); };
+    const fallback = () => {
+      if (poll !== null) return;
+      poll = window.setInterval(() => {
+        if (polling) return;
+        polling = true;
+        scans.progress(view.scan_id)
+          .then((progress) => {
+            if (!alive) return;
+            setP(progress);
+            if (progress.status !== 'UPLOADED' && progress.status !== 'PROCESSING') reload();
+          })
+          .catch(() => { if (alive) reload(); })
+          .finally(() => { polling = false; });
+      }, 1500);
+    };
     token().then((t) => {
       if (!alive) return;
       if (!t) return fallback();
@@ -58,7 +72,6 @@ export function ScanDetail({ id }: { id: string }) {
   const [sel, setSel] = useState<string | null>(null);
   const [multiSel, setMultiSel] = useState<string[]>([]);
   const [bulkSku, setBulkSku] = useState('');
-  const [panePct, setPanePct] = useState(65);
   const [tab, setTab] = useState<'review' | 'counts' | 'activity'>('counts');
   const [sheet, setSheet] = useState<null | 'submit' | 'return' | 'reopen'>(null);
   const [note, setNote] = useState('');
@@ -80,12 +93,15 @@ export function ScanDetail({ id }: { id: string }) {
   const openBySku = useMemo(() => {
     const grouped = new Map<string, string[]>();
     for (const d of open) {
-      const sku = d.assigned_sku ?? d.top_matches[0]?.sku;
+      const sku = d.assigned_sku ?? (d.state === 'CHECK' ? d.top_matches[0]?.sku : undefined);
       if (sku) grouped.set(sku, [...(grouped.get(sku) ?? []), d.id]);
     }
     return grouped;
   }, [open]);
-  const unmatched = useMemo(() => live.filter((d) => !d.assigned_sku && !d.top_matches[0]), [live]);
+  const unmatched = useMemo(() => live.filter((d) => !d.assigned_sku &&
+    (d.accepted_unknown || d.state === 'UNKNOWN' || !d.top_matches[0])), [live]);
+  const skuEstimateTotal = useMemo(() => view?.summary.reduce((sum, row) => sum + row.detected, 0) ?? 0, [view?.summary]);
+  const unknownNeedsReview = unmatched.some(isOpen);
 
   const canEdit = !!view?.permissions.can_edit;
 
@@ -220,11 +236,8 @@ export function ScanDetail({ id }: { id: string }) {
       {notice && <div className="mb-4"><Notice tone="brand">{notice}</Notice></div>}
       {!canEdit && view.status === 'APPROVED' && <div className="mb-4"><Notice tone="brand">This scan is approved and locked (read-only).</Notice></div>}
 
-      <div className="scan-result-split grid gap-4 lg:grid-cols-[minmax(0,65fr)_minmax(320px,35fr)]" style={{ '--image-pane': `${panePct}fr` } as CSSProperties}>
+      <div className="space-y-4">
         <div className="space-y-3">
-          <label className="hidden items-center gap-2 text-[10px] font-semibold text-muted xl:flex">Image width
-            <input type="range" min={45} max={75} value={panePct} onChange={(e) => setPanePct(Number(e.target.value))} aria-label="Resize image and results split" className="w-28 accent-brand" />
-          </label>
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter boxes">
             {(['ALL', 'SURE', 'CHECK', 'UNKNOWN', 'CORRECTED'] as const).map((f) => (
               <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}
@@ -253,7 +266,7 @@ export function ScanDetail({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="scan-results-panel rounded-2xl border border-line bg-white">
+        <div className="rounded-2xl border border-line bg-white">
           <div role="tablist" className="flex border-b border-line">
             {(['review', 'counts', 'activity'] as const).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} type="button" onClick={() => setTab(t)} className={cn('flex-1 px-3 py-3 text-xs font-bold capitalize', tab === t ? 'border-b-2 border-brand text-ink' : 'text-muted')}>
@@ -321,53 +334,68 @@ export function ScanDetail({ id }: { id: string }) {
           )}
 
           {tab === 'counts' && (
-            <div className="space-y-3 p-3">
-              <div className="rounded-xl border border-brand/20 bg-brand/5 p-3">
-                <p className="text-xs font-bold text-ink">AI quantity estimates · human approval required</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
+            <div className="space-y-4 p-4 sm:p-5">
+              <div className="rounded-2xl border border-brand/20 bg-brand-mist p-4 shadow-sm sm:p-5">
+                <p className="text-sm font-semibold tracking-[-0.01em] text-ink">AI quantity estimates <span className="font-normal text-muted">· human approval required</span></p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">
                   Quantities count visible detected packages. Unmatched packages stay under Unknown; add product reference photos for automatic SKU matching. Review flagged boxes before submitting for manager approval.
                 </p>
-                {canEdit && open.length > 0 && <button type="button" className={`${btnSecondary} mt-2 w-full`} onClick={() => { setTab('review'); setSel(open[0].id); }}>
+                {canEdit && open.length > 0 && <button type="button" className={`${btnPrimary} mt-4 w-full`} onClick={() => { setTab('review'); setSel(open[0].id); }}>
                   Review flagged boxes ({open.length})
                 </button>}
-                {canEdit && open.length === 0 && <p className="mt-2 text-xs font-semibold text-brand">All flagged boxes are resolved. Submit for manager approval when ready.</p>}
-                {p.can_approve && view.status === 'SUBMITTED' && <p className="mt-2 text-xs font-semibold text-brand">Review these estimates, then approve or return the scan.</p>}
+                {canEdit && open.length === 0 && <p className="mt-3 text-sm font-semibold text-brand">All flagged boxes are resolved. Submit for manager approval when ready.</p>}
+                {p.can_approve && view.status === 'SUBMITTED' && <p className="mt-3 text-sm font-semibold text-brand">Review these estimates, then approve or return the scan.</p>}
               </div>
-              <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                {[
+                  { label: 'Visible items', value: view.totals.detected },
+                  { label: 'SKU estimates', value: skuEstimateTotal },
+                  { label: 'Unknown', value: unmatched.length },
+                ].map(({ label, value }) => <div key={label} className="min-w-0 rounded-xl border border-line bg-white px-2 py-3 shadow-sm sm:py-3.5">
+                  <p className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-muted sm:text-[11px]">{label}</p>
+                  <p className="mt-1 font-mono text-xl font-bold tabular-nums tracking-tight text-ink">{value}</p>
+                </div>)}
+              </div>
+              <div className="space-y-3">
+                {unmatched.length > 0 && <article className="min-w-0 rounded-2xl border border-warn/35 bg-white p-4 shadow-sm sm:p-5">
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold tracking-[-0.01em]">Unknown / no catalog match</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted sm:text-[13px]">Detected packages without a reliable SKU match</p>
+                    </div>
+                    <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide', unknownNeedsReview ? 'bg-warn-soft text-warn' : 'bg-brand-soft text-brand-deep')}>
+                      {unknownNeedsReview ? 'Needs review' : 'Reviewed'}
+                    </span>
+                  </div>
+                  <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2">
+                    <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-line pt-2"><dt className="truncate text-xs text-muted">Est. qty</dt><dd className="font-mono text-sm font-bold tabular-nums text-ink">{unmatched.length}</dd></div>
+                    <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-line pt-2"><dt className="truncate text-xs text-muted">Resolved</dt><dd className="font-mono text-sm font-semibold tabular-nums text-ink">{unmatched.filter((d) => d.accepted_unknown).length}</dd></div>
+                  </dl>
+                  {canEdit && unknownNeedsReview && <button type="button" className="mt-3 max-w-full break-words text-left text-xs font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand" onClick={() => { setTab('review'); setSel(unmatched.find(isOpen)?.id ?? unmatched[0]?.id ?? null); }}>Review unknown items</button>}
+                </article>}
                 {[...view.summary].sort((a, b) => a.variance - b.variance).map((r) => {
                   const flagged = openBySku.get(r.sku) ?? [];
-                  return <article key={r.sku} className="min-w-0 rounded-xl border border-line p-3">
+                  return <article key={r.sku} className={cn('min-w-0 rounded-2xl border bg-white p-4 shadow-sm sm:p-5', r.status === 'SHORTFALL' ? 'border-danger/20' : r.status === 'SURPLUS' ? 'border-warn/25' : 'border-line')}>
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="break-words text-xs font-semibold leading-snug">{r.name}</p>
-                        <p className="mt-0.5 break-all font-mono text-[10px] text-muted">{r.sku}</p>
+                        <p className="break-words text-sm font-semibold leading-snug tracking-[-0.01em]">{r.name}</p>
+                        <p className="mt-1 break-all font-mono text-[11px] text-muted">{r.sku}</p>
                       </div>
-                      <span className={cn('shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase', r.status === 'SHORTFALL' ? 'bg-danger-soft text-danger' : r.status === 'SURPLUS' ? 'bg-warn-soft text-warn' : 'bg-brand-soft text-brand-deep')}>
+                      <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide', r.status === 'SHORTFALL' ? 'bg-danger-soft text-danger' : r.status === 'SURPLUS' ? 'bg-warn-soft text-warn' : 'bg-brand-soft text-brand-deep')}>
                         {r.status === 'SHORTFALL' ? 'Short' : r.status === 'SURPLUS' ? 'Over' : 'OK'}
                       </span>
                     </div>
-                    <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+                    <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2.5">
                       {[['Est. qty', r.detected], ['Resolved', r.reviewed], ['Expected', r.expected], ['Variance', `${r.variance > 0 ? '+' : ''}${r.variance}`]].map(([label, value]) => (
-                        <div key={label} className="flex min-w-0 items-baseline justify-between gap-1 border-t border-line pt-1.5">
-                          <dt className="truncate text-[10px] text-muted">{label}</dt>
-                          <dd className="shrink-0 font-mono text-xs font-semibold tabular-nums">{value}</dd>
+                        <div key={label} className="flex min-w-0 items-baseline justify-between gap-2 border-t border-line pt-2">
+                          <dt className="truncate text-xs text-muted">{label}</dt>
+                          <dd className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">{value}</dd>
                         </div>
                       ))}
                     </dl>
-                    {flagged.length > 0 && canEdit && <button type="button" className="mt-2 max-w-full break-words text-left text-[10px] font-bold text-brand underline" onClick={() => { setTab('review'); setSel(flagged[0]); }}>Review {flagged.length} flagged {flagged.length === 1 ? 'box' : 'boxes'}</button>}
+                    {flagged.length > 0 && canEdit && <button type="button" className="mt-3 max-w-full break-words text-left text-xs font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand" onClick={() => { setTab('review'); setSel(flagged[0]); }}>Review {flagged.length} flagged {flagged.length === 1 ? 'box' : 'boxes'}</button>}
                   </article>;
                 })}
-                {unmatched.length > 0 && <article className="min-w-0 rounded-xl border border-warn/30 bg-warn-soft/30 p-3">
-                  <div className="flex min-w-0 items-start justify-between gap-2">
-                    <p className="min-w-0 break-words text-xs font-semibold">Unknown / no catalog match</p>
-                    <span className="shrink-0 rounded-full bg-warn-soft px-2 py-1 text-[9px] font-bold uppercase text-warn">Needs review</span>
-                  </div>
-                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
-                    <div className="flex min-w-0 items-baseline justify-between gap-1 border-t border-line pt-1.5"><dt className="truncate text-[10px] text-muted">Est. qty</dt><dd className="font-mono text-xs font-semibold tabular-nums">{unmatched.length}</dd></div>
-                    <div className="flex min-w-0 items-baseline justify-between gap-1 border-t border-line pt-1.5"><dt className="truncate text-[10px] text-muted">Resolved</dt><dd className="font-mono text-xs font-semibold tabular-nums">{unmatched.filter((d) => d.accepted_unknown).length}</dd></div>
-                  </dl>
-                  {canEdit && <button type="button" className="mt-2 max-w-full break-words text-left text-[10px] font-bold text-brand underline" onClick={() => { setTab('review'); setSel(unmatched.find(isOpen)?.id ?? unmatched[0].id); }}>Review unknown items</button>}
-                </article>}
                 {view.summary.length === 0 && unmatched.length === 0 && <p className="p-6 text-center text-xs text-muted">No item estimates are available yet.</p>}
               </div>
             </div>

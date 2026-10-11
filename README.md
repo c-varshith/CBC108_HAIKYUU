@@ -6,13 +6,17 @@
   <p>
     <a href="#features">Features</a> ·
     <a href="#workflow">Workflow</a> ·
-    <a href="#screenshots">Screenshots</a> ·
     <a href="#setup">Setup</a> ·
     <a href="#stack">Stack</a>
   </p>
 </div>
 
 > **Human review stays in the loop:** Calibrex counts visible package detections. Staff review and correct estimates before a manager approves a scan.
+
+<p align="center">
+  <img src="docs/screenshots/landing.png" alt="Calibrex landing page" width="49%">
+  <img src="docs/screenshots/dashboard.png" alt="Calibrex workspace dashboard" width="49%">
+</p>
 
 ## At a glance
 
@@ -40,16 +44,6 @@
 4. A manager approves or returns the scan. Approved counts update inventory variance and reports.
 
 Catalog photos improve SKU matching; they do not retrain the detector. See the [catalog setup and import guide](docs/catalog-import.md).
-
-## Screenshots
-
-### Landing page
-
-![Calibrex landing page](docs/screenshots/landing.png)
-
-### Workspace dashboard
-
-![Calibrex workspace dashboard](docs/screenshots/dashboard.png)
 
 ## Setup
 
